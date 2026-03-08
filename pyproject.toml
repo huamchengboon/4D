@@ -1,0 +1,35 @@
+[build-system]
+requires = ["maturin>=1.12,<2"]
+build-backend = "maturin"
+
+[project]
+name = "4d"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=5.0.0",
+    "polars>=1.0.0",
+    "pandas>=2.0.0",
+    "pyarrow>=14.0.0",
+    "seaborn>=0.13.0",
+    "matplotlib>=3.8.0",
+    "scipy>=1.11.0",
+    "torch>=2.0.0",
+    "loguru>=0.7.0",
+    "rich>=13.0.0",
+    "tqdm>=4.66.0",
+    "optuna>=3.5.0",
+]
+
+[tool.maturin]
+manifest-path = "fetch_4d/Cargo.toml"
+module-name = "fetch_4d"
+
+[dependency-groups]
+dev = [
+    "maturin>=1.12.6",
+]

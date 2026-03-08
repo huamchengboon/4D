@@ -1,0 +1,14 @@
+[package]
+name = "fetch_4d"
+version = "0.1.0"
+edition = "2021"
+description = "Fast parallel HTTP fetcher for 4D past results (PyO3)"
+
+[lib]
+name = "fetch_4d"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.23", features = ["extension-module"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
