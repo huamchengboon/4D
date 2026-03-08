@@ -97,7 +97,7 @@ def _kwargs_from_checkpoint(ckpt: dict, args: argparse.Namespace, for_backtest: 
             base["use_rope"] = True
         k_key = "transformer_encoder.0.self_attn.k_proj.weight"
         k_key_orig = prefix + k_key
-        kw = state.get(k_key) or state.get(k_key_orig)
+        kw = state[k_key] if k_key in state else (state[k_key_orig] if k_key_orig in state else None)
         if kw is not None:
             head_dim = base["d_model"] // base["nhead"]
             if kw.shape[0] != base["d_model"]:
