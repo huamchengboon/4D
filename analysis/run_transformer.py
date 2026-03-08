@@ -78,6 +78,17 @@ def _transformer_kwargs(args: argparse.Namespace) -> dict:
     }
 
 
+def _kwargs_from_checkpoint(ckpt: dict, for_backtest: bool = False) -> dict | None:
+    """Return transformer kwargs from checkpoint config if present; else None. For backtest, force use_grad_checkpoint=False."""
+    config = ckpt.get("config")
+    if not config:
+        return None
+    kwargs = dict(config)
+    if for_backtest:
+        kwargs["use_grad_checkpoint"] = False
+    return kwargs
+
+
 def get_device() -> torch.device:
     if torch.cuda.is_available():
         return torch.device("cuda")
@@ -161,7 +172,14 @@ def main() -> None:
         if not checkpoint_path.is_file():
             console.print(f"[red]Checkpoint not found:[/] {checkpoint_path}")
             sys.exit(1)
-        valid_indices = list(range(args.seq_len, n))
+        ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
+        bt_kwargs = _kwargs_from_checkpoint(ckpt, for_backtest=True)
+        if bt_kwargs is not None:
+            seq_len_bt = bt_kwargs["seq_len"]
+        else:
+            bt_kwargs = _transformer_kwargs(args)
+            seq_len_bt = args.seq_len
+        valid_indices = list(range(seq_len_bt, n))
         n_bt = min(args.backtest_draws, len(valid_indices))
         if n_bt <= 0:
             console.print("[red]Not enough draws for backtest (need seq_len + at least 1).[/]")
@@ -173,12 +191,13 @@ def main() -> None:
         config_bt.add_column()
         config_bt.add_row("Checkpoint", str(checkpoint_path))
         config_bt.add_row("Backtest draws", str(n_bt))
-        config_bt.add_row("Seq len", str(args.seq_len))
+        config_bt.add_row("Seq len", str(seq_len_bt))
+        if ckpt.get("config"):
+            config_bt.add_row("Model", "from checkpoint (RoPE/GQA etc.)")
         config_bt.add_row("Device", str(device))
         console.print(config_bt)
         console.print()
-        model = NextDrawTransformer(**_transformer_kwargs(args)).to(device)
-        ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
+        model = NextDrawTransformer(**bt_kwargs).to(device)
         model.load_state_dict(_state_dict_for_load(ckpt["model"], model), strict=True)
         model.eval()
         all_preds: list[list[int]] = []
@@ -189,7 +208,7 @@ def main() -> None:
                 batch_indices = sample_indices[i:batch_end]
                 X_list = []
                 for t in batch_indices:
-                    seq_draws = [draws[t - args.seq_len + k][2] for k in range(args.seq_len)]
+                    seq_draws = [draws[t - model.seq_len + k][2] for k in range(model.seq_len)]
                     X_list.append(torch.stack([draw_set_to_multi_hot(s) for s in seq_draws], dim=0))
                 X = torch.stack(X_list, dim=0).to(device)
                 preds = predict_top_k(model, X, k=23)
@@ -374,7 +393,12 @@ def main() -> None:
             best_val_loss = val_loss
             epochs_without_improvement = 0
             checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-            torch.save({"model": model.state_dict(), "epoch": epoch + 1, "val_loss": val_loss}, checkpoint_path)
+            torch.save({
+                "model": model.state_dict(),
+                "epoch": epoch + 1,
+                "val_loss": val_loss,
+                "config": _transformer_kwargs(args),
+            }, checkpoint_path)
             if verbose:
                 logger.info("Best checkpoint saved to {}", checkpoint_path)
         else:
