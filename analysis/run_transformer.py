@@ -62,6 +62,22 @@ def _state_dict_for_load(
     return state_dict
 
 
+def _transformer_kwargs(args: argparse.Namespace) -> dict:
+    return {
+        "seq_len": args.seq_len,
+        "d_model": args.d_model,
+        "nhead": args.nhead,
+        "num_encoder_layers": args.layers,
+        "dim_feedforward": args.dim_ff,
+        "dropout": args.dropout,
+        "n_kv_heads": getattr(args, "n_kv_heads", None),
+        "use_rope": getattr(args, "rope", False),
+        "drop_path": getattr(args, "drop_path", 0.0),
+        "layer_scale": getattr(args, "layer_scale", 0.0),
+        "use_grad_checkpoint": getattr(args, "grad_checkpoint", False),
+    }
+
+
 def get_device() -> torch.device:
     if torch.cuda.is_available():
         return torch.device("cuda")
@@ -79,6 +95,12 @@ def main() -> None:
     parser.add_argument("--layers", type=int, default=4, help="Encoder layers (default 4)")
     parser.add_argument("--dim-ff", type=int, default=1024, help="Feedforward dim (default 1024)")
     parser.add_argument("--dropout", type=float, default=0.1, help="Dropout rate (default 0.1; try 0.15–0.2 to reduce overfitting)")
+    parser.add_argument("--rope", action="store_true", help="Use RoPE instead of sinusoidal position encoding")
+    parser.add_argument("--n-kv-heads", type=int, default=None, metavar="N", help="GQA: number of K/V heads (default = nhead; 2 for 8 heads is faster)")
+    parser.add_argument("--drop-path", type=float, default=0.0, help="Stochastic depth rate (default 0; try 0.1)")
+    parser.add_argument("--layer-scale", type=float, default=0.0, help="LayerScale init (default 0; try 0.1)")
+    parser.add_argument("--grad-checkpoint", action="store_true", help="Gradient checkpointing (saves memory, slower backward)")
+    parser.add_argument("--fast", action="store_true", help="Preset: --rope --n-kv-heads 2 --grad-checkpoint (faster, less memory)")
     parser.add_argument("--weight-decay", type=float, default=0.01, help="AdamW weight decay (default 0.01)")
     parser.add_argument("--epochs", type=int, default=20, help="Max training epochs (default 20; early stopping may stop sooner)")
     parser.add_argument("--early-stopping", type=int, default=5, metavar="N", help="Stop if val loss does not improve for N epochs (default 5; 0 = disabled)")
@@ -100,6 +122,11 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=None, help="DataLoader num_workers (default 4 on cuda/mps, 0 on cpu)")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
+    if getattr(args, "fast", False):
+        args.rope = True
+        if args.n_kv_heads is None and args.nhead >= 4:
+            args.n_kv_heads = 2
+        args.grad_checkpoint = True
 
     console = Console()
     verbose = not args.quiet
@@ -150,14 +177,7 @@ def main() -> None:
         config_bt.add_row("Device", str(device))
         console.print(config_bt)
         console.print()
-        model = NextDrawTransformer(
-            seq_len=args.seq_len,
-            d_model=args.d_model,
-            nhead=args.nhead,
-            num_encoder_layers=args.layers,
-            dim_feedforward=args.dim_ff,
-            dropout=args.dropout,
-        ).to(device)
+        model = NextDrawTransformer(**_transformer_kwargs(args)).to(device)
         ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
         model.load_state_dict(_state_dict_for_load(ckpt["model"], model), strict=True)
         model.eval()
@@ -217,6 +237,18 @@ def main() -> None:
     config.add_row("Scheduler", args.scheduler)
     if getattr(args, "early_stopping", 0) > 0:
         config.add_row("Early stopping", f"patience={args.early_stopping}")
+    if getattr(args, "rope", False):
+        config.add_row("RoPE", "on")
+    if getattr(args, "n_kv_heads", None) is not None:
+        config.add_row("GQA n_kv_heads", str(args.n_kv_heads))
+    if getattr(args, "drop_path", 0) > 0:
+        config.add_row("Drop path", str(args.drop_path))
+    if getattr(args, "layer_scale", 0) > 0:
+        config.add_row("Layer scale", str(args.layer_scale))
+    if getattr(args, "grad_checkpoint", False):
+        config.add_row("Grad checkpoint", "on")
+    if getattr(args, "fast", False):
+        config.add_row("Preset", "fast (rope + GQA + grad checkpoint)")
     config.add_row("Workers", str(num_workers))
     if args.amp:
         config.add_row("AMP", "on (mixed precision)")
@@ -248,14 +280,7 @@ def main() -> None:
     )
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=num_workers)
 
-    model = NextDrawTransformer(
-        seq_len=args.seq_len,
-        d_model=args.d_model,
-        nhead=args.nhead,
-        num_encoder_layers=args.layers,
-        dim_feedforward=args.dim_ff,
-        dropout=args.dropout,
-    ).to(device)
+    model = NextDrawTransformer(**_transformer_kwargs(args)).to(device)
     start_epoch = 0
     best_val_loss = float("inf")
     if checkpoint_path.is_file() and not getattr(args, "no_resume", False):

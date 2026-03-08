@@ -75,6 +75,32 @@ class RMSNorm(nn.Module):
         return (x * rms) * self.weight
 
 
+def _apply_rope(q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Apply rotary position embedding to Q and K. q,k: (B, H, L, D); cos, sin: (1, 1, L, D)."""
+    # RoPE: rotate pairs of dimensions by position * theta
+    def rotate(x: torch.Tensor) -> torch.Tensor:
+        x1, x2 = x.chunk(2, dim=-1)
+        return torch.cat([x1 * cos - x2 * sin, x1 * sin + x2 * cos], dim=-1)
+    return rotate(q), rotate(k)
+
+
+class RoPECache(nn.Module):
+    """Cached cos/sin for RoPE (max_len, head_dim)."""
+
+    def __init__(self, head_dim: int, max_len: int = 4096, base: float = 10000.0) -> None:
+        super().__init__()
+        inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2, dtype=torch.float32) / head_dim))
+        position = torch.arange(max_len, dtype=torch.float32)
+        freqs = torch.outer(position, inv_freq)
+        cos = freqs.cos().unsqueeze(0).unsqueeze(0)  # (1, 1, L, D/2)
+        sin = freqs.sin().unsqueeze(0).unsqueeze(0)
+        self.register_buffer("cos", cos)
+        self.register_buffer("sin", sin)
+
+    def forward(self, seq_len: int) -> tuple[torch.Tensor, torch.Tensor]:
+        return self.cos[:, :, :seq_len, :], self.sin[:, :, :seq_len, :]
+
+
 class SwiGLUFFN(nn.Module):
     """SwiGLU feed-forward (gate * silu(up)); better accuracy per parameter than standard ReLU/GELU FFN."""
 
@@ -91,27 +117,48 @@ class SwiGLUFFN(nn.Module):
 
 class SDPAMultiheadAttention(nn.Module):
     """
-    Multi-head self-attention using F.scaled_dot_product_attention.
-    Ensures Flash/memory-efficient backend is used during training for speed.
+    Multi-head self-attention with optional RoPE and GQA.
+    SDPA for speed; RoPE for better length; GQA for less memory.
     """
 
-    def __init__(self, d_model: int, nhead: int, dropout: float = 0.1) -> None:
+    def __init__(
+        self,
+        d_model: int,
+        nhead: int,
+        dropout: float = 0.1,
+        n_kv_heads: int | None = None,
+        use_rope: bool = False,
+        max_len: int = 4096,
+    ) -> None:
         super().__init__()
         assert d_model % nhead == 0
         self.nhead = nhead
         self.head_dim = d_model // nhead
-        self.qkv_proj = nn.Linear(d_model, 3 * d_model)
+        self.n_kv_heads = n_kv_heads if n_kv_heads is not None else nhead
+        assert nhead % self.n_kv_heads == 0
+        self.use_rope = use_rope and self.head_dim % 2 == 0
+        self.q_proj = nn.Linear(d_model, nhead * self.head_dim)
+        self.k_proj = nn.Linear(d_model, self.n_kv_heads * self.head_dim)
+        self.v_proj = nn.Linear(d_model, self.n_kv_heads * self.head_dim)
         self.out_proj = nn.Linear(d_model, d_model)
         self.dropout_p = dropout
+        if self.use_rope:
+            self.rope = RoPECache(self.head_dim, max_len=max_len)
+        else:
+            self.rope = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, L, _ = x.shape
-        qkv = self.qkv_proj(x)
-        q, k, v = qkv.chunk(3, dim=-1)
-        # (B, L, nhead, head_dim) -> (B, nhead, L, head_dim) for SDPA
-        q = q.view(B, L, self.nhead, self.head_dim).transpose(1, 2)
-        k = k.view(B, L, self.nhead, self.head_dim).transpose(1, 2)
-        v = v.view(B, L, self.nhead, self.head_dim).transpose(1, 2)
+        q = self.q_proj(x).view(B, L, self.nhead, self.head_dim).transpose(1, 2)
+        k = self.k_proj(x).view(B, L, self.n_kv_heads, self.head_dim).transpose(1, 2)
+        v = self.v_proj(x).view(B, L, self.n_kv_heads, self.head_dim).transpose(1, 2)
+        if self.n_kv_heads != self.nhead:
+            n_rep = self.nhead // self.n_kv_heads
+            k = k.repeat_interleave(n_rep, dim=1)
+            v = v.repeat_interleave(n_rep, dim=1)
+        if self.use_rope and self.rope is not None:
+            cos, sin = self.rope(L)
+            q, k = _apply_rope(q, k, cos, sin)
         out = torch.nn.functional.scaled_dot_product_attention(
             q, k, v, dropout_p=self.dropout_p if self.training else 0.0
         )
@@ -119,9 +166,18 @@ class SDPAMultiheadAttention(nn.Module):
         return self.out_proj(out)
 
 
+def _drop_path(x: torch.Tensor, drop_prob: float, training: bool) -> torch.Tensor:
+    if drop_prob == 0.0 or not training:
+        return x
+    keep = 1 - drop_prob
+    shape = (x.size(0),) + (1,) * (x.ndim - 1)
+    mask = x.new_empty(shape).bernoulli_(keep).div_(keep)
+    return x * mask
+
+
 class SotaEncoderLayer(nn.Module):
     """
-    Encoder layer with pre-norm, RMSNorm, SwiGLU FFN, and SDPA attention (SOTA + speed).
+    Encoder layer: pre-norm, RMSNorm, SDPA (optional RoPE/GQA), SwiGLU, LayerScale, stochastic depth.
     """
 
     def __init__(
@@ -131,13 +187,23 @@ class SotaEncoderLayer(nn.Module):
         dim_feedforward: int = 1024,
         dropout: float = 0.1,
         batch_first: bool = True,
+        n_kv_heads: int | None = None,
+        use_rope: bool = False,
+        max_len: int = 4096,
+        drop_path: float = 0.0,
+        layer_scale_init: float = 0.0,
     ) -> None:
         super().__init__()
         self.norm1 = RMSNorm(d_model)
-        self.self_attn = SDPAMultiheadAttention(d_model, nhead, dropout)
+        self.self_attn = SDPAMultiheadAttention(
+            d_model, nhead, dropout, n_kv_heads=n_kv_heads, use_rope=use_rope, max_len=max_len
+        )
         self.norm2 = RMSNorm(d_model)
         self.ffn = SwiGLUFFN(d_model, dim_feedforward, dropout)
         self.dropout = nn.Dropout(dropout)
+        self.drop_path_rate = drop_path
+        self.ls1 = nn.Parameter(torch.ones(d_model) * layer_scale_init) if layer_scale_init > 0 else None
+        self.ls2 = nn.Parameter(torch.ones(d_model) * layer_scale_init) if layer_scale_init > 0 else None
 
     def forward(
         self,
@@ -146,10 +212,14 @@ class SotaEncoderLayer(nn.Module):
         src_key_padding_mask: torch.Tensor | None = None,
         is_causal: bool | None = None,
     ) -> torch.Tensor:
-        # Pre-norm attention (SDPA; no padding mask in our use case)
-        x = src + self.dropout(self.self_attn(self.norm1(src)))
-        # Pre-norm SwiGLU FFN
-        x = x + self.ffn(self.norm2(x))
+        attn_out = self.dropout(self.self_attn(self.norm1(src)))
+        if self.ls1 is not None:
+            attn_out = attn_out * self.ls1
+        x = src + _drop_path(attn_out, self.drop_path_rate, self.training)
+        ffn_out = self.ffn(self.norm2(x))
+        if self.ls2 is not None:
+            ffn_out = ffn_out * self.ls2
+        x = x + _drop_path(ffn_out, self.drop_path_rate, self.training)
         return x
 
 
@@ -176,7 +246,7 @@ class PositionalEncoding(nn.Module):
 class NextDrawTransformer(nn.Module):
     """
     Encoder-only transformer: sequence of past draws -> logits over 10k numbers.
-    - Input (B, L, 10000) -> linear to (B, L, d_model) -> pos -> encoder -> last step -> (B, d_model) -> linear -> (B, 10000).
+    Supports RoPE, GQA, LayerScale, stochastic depth.
     """
 
     def __init__(
@@ -187,12 +257,23 @@ class NextDrawTransformer(nn.Module):
         num_encoder_layers: int = 4,
         dim_feedforward: int = 1024,
         dropout: float = 0.1,
+        n_kv_heads: int | None = None,
+        use_rope: bool = False,
+        drop_path: float = 0.0,
+        layer_scale: float = 0.0,
+        use_grad_checkpoint: bool = False,
     ) -> None:
         super().__init__()
         self.seq_len = seq_len
         self.d_model = d_model
+        self.use_rope = use_rope
+        self.use_grad_checkpoint = use_grad_checkpoint
         self.input_proj = nn.Linear(N_NUMBERS, d_model)
-        self.pos_encoder = PositionalEncoding(d_model, max_len=seq_len + 1, dropout=dropout)
+        self.pos_encoder = None if use_rope else PositionalEncoding(d_model, max_len=seq_len + 1, dropout=dropout)
+        max_len = seq_len + 1
+        layer_drop_paths = [
+            drop_path * (i / max(num_encoder_layers - 1, 1)) for i in range(num_encoder_layers)
+        ]
         self.transformer_encoder = nn.ModuleList([
             SotaEncoderLayer(
                 d_model=d_model,
@@ -200,27 +281,27 @@ class NextDrawTransformer(nn.Module):
                 dim_feedforward=dim_feedforward,
                 dropout=dropout,
                 batch_first=True,
+                n_kv_heads=n_kv_heads,
+                use_rope=use_rope,
+                max_len=max_len,
+                drop_path=layer_drop_paths[i],
+                layer_scale_init=layer_scale,
             )
-            for _ in range(num_encoder_layers)
+            for i in range(num_encoder_layers)
         ])
         self.head = nn.Linear(d_model, N_NUMBERS)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        x: (B, L, 10000) multi-hot sequence of L draws.
-        Returns: (B, 10000) logits for next draw.
-        """
-        # (B, L, d_model)
         x = self.input_proj(x)
-        x = self.pos_encoder(x)
-        # (B, L, d_model)
+        if self.pos_encoder is not None:
+            x = self.pos_encoder(x)
         for layer in self.transformer_encoder:
-            x = layer(x)
-        enc = x
-        # Use last timestep
-        last = enc[:, -1, :]  # (B, d_model)
-        logits = self.head(last)  # (B, 10000)
-        return logits
+            if self.training and self.use_grad_checkpoint:
+                x = torch.utils.checkpoint.checkpoint(layer, x, use_reentrant=False)
+            else:
+                x = layer(x)
+        last = x[:, -1, :]
+        return self.head(last)
 
 
 def predict_top_k(model: NextDrawTransformer, x: torch.Tensor, k: int = 23) -> list[list[int]]:

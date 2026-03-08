@@ -61,10 +61,16 @@ The 4D Transformer uses a **SOTA encoder layer** by default:
 - **RMSNorm** — Replaces LayerNorm in the encoder (simpler, stable in deep nets).
 - **SwiGLU FFN** — Gate and up projections with SiLU; then down. Better accuracy per parameter.
 - **SDPA attention** — Custom multi-head attention calling `F.scaled_dot_product_attention` so Flash/memory-efficient backends are used during training (faster than generic MHA path).
-- **torch.compile** — On by default in `run_transformer`; use `--no-compile` to disable (e.g. if first-epoch compile overhead is an issue).
-- **Workers** — Default DataLoader `num_workers=4` on cuda/mps for faster data loading.
+- **RoPE** — `--rope`: rotary position embeddings in attention (replaces sinusoidal PE); better length generalization.
+- **GQA** — `--n-kv-heads N`: grouped query attention (e.g. 2 for 8 heads); less memory and compute.
+- **Stochastic depth** — `--drop-path R`: drop residual branches with probability R (per-layer linear schedule); regularizes.
+- **LayerScale** — `--layer-scale V`: learnable scale on residuals (e.g. 0.1); stabilizes deep nets.
+- **Gradient checkpointing** — `--grad-checkpoint`: trade compute for memory so you can use larger batch/seq_len.
+- **--fast** — Preset: `--rope --n-kv-heads 2 --grad-checkpoint` for faster training and lower memory.
+- **torch.compile** — On by default in `run_transformer`; use `--no-compile` to disable.
+- **Workers** — Default DataLoader `num_workers=4` on cuda/mps.
 
-Existing checkpoints from older architectures (LayerNorm + GELU FFN, or nn.MultiheadAttention) are **not** compatible; train from scratch or use `--no-resume` once.
+Existing checkpoints from older architectures are **not** compatible when adding RoPE/GQA/etc.; train from scratch or use `--no-resume` once.
 
 ## 6. What else to try (optional)
 
@@ -80,6 +86,23 @@ Existing checkpoints from older architectures (LayerNorm + GELU FFN, or nn.Multi
 - **RoPE** instead of sinusoidal PE (custom attention or layer).
 - **GQA** (custom `MultiheadAttention` with fewer K/V heads).
 - **Mamba hybrid:** Add Mamba/SSM layers (e.g. alternate with attention) for O(L) scaling and faster long-context.
+
+---
+
+## 7. Next improvements to implement (by impact vs effort)
+
+| Method | Impact | Effort | What it does |
+|--------|--------|--------|---------------|
+| **RoPE (Rotary Position Embeddings)** | High | Medium | Replace sinusoidal PE with relative rotations in Q/K; better length generalization and often better accuracy. |
+| **Stochastic depth (drop path)** | Medium | Low | Randomly drop residual branches in training; acts as strong regularization, can reduce overfitting. |
+| **LayerScale** | Medium | Low | Learnable per-layer scalar on residuals (e.g. 0.1 init); stabilizes deep nets, used in ViT/LLaMA. |
+| **GQA (Grouped Query Attention)** | Medium (speed/mem) | Medium | Fewer K/V heads than Q heads (e.g. 8 Q, 2 K/V); less memory, similar quality, faster. |
+| **Patch tokenization** | Medium | Medium | Group e.g. 4 consecutive draws into one token; shorter sequence, multi-scale feel; often helps time series. |
+| **Gradient checkpointing** | Speed (larger batch) | Low | Recompute activations in backward; trade compute for memory so you can raise batch_size or seq_len. |
+| **Mamba/SSM hybrid** | High (long seq speed) | High | Alternate Mamba layers with attention; O(L) per Mamba block, ~3× faster inference for long context. |
+| **Sparse / linear attention** | Speed (long seq) | High | Sub-quadratic attention (e.g. SCOUT, ZeroS); more research-heavy integration. |
+
+**Suggested order:** RoPE → stochastic depth or LayerScale → GQA or patch tokenization, then gradient checkpointing if memory-bound. Mamba hybrid when you need much longer sequences and can add a new dependency.
 
 **References (arXiv)**
 

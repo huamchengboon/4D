@@ -157,7 +157,7 @@ uv run python -m analysis.run_transformer --max-draws 2000 --epochs 10 --d-model
 
 Options: `--seq-len`, `--d-model`, `--nhead`, `--layers`, `--dim-ff`, `--dropout`, `--epochs`, `--batch-size`, `--lr`, `--val-ratio`, `--checkpoint`. Checkpoint: `output/transformer_4d.pt`.
 
-**Faster training (no accuracy sacrifice):** Mixed precision (AMP) is on by default on GPU/MPS; use `--no-amp` to disable. DataLoader uses 4 workers on cuda/mps. Increase throughput with `--batch-size 64` or `128` if you have enough GPU memory. `--compile` is on by default (PyTorch 2+).
+**Faster training:** Mixed precision (AMP) and `--compile` are on by default. Use `--fast` for preset: RoPE + GQA (2 KV heads) + gradient checkpointing (faster, less memory). Optional: `--rope`, `--n-kv-heads 2`, `--drop-path 0.1`, `--layer-scale 0.1`, `--grad-checkpoint`. Increase `--batch-size` if you have GPU memory.
 
 **Efficient training (reduce overfitting):** `--early-stopping N` stops when val loss does not improve for N epochs (default 5; use `--early-stopping 0` to disable). Best checkpoint is always saved and loaded for final eval. Use `--dropout 0.15` or `0.2` and/or `--weight-decay 0.02` for stronger regularization. Prefer more data (avoid `--max-draws` or use a large value) when possible.
 
