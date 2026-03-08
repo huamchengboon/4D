@@ -61,6 +61,10 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=Path, default=None, help="Save/load model path (default output/transformer_4d.pt)")
     parser.add_argument("--backtest", action="store_true", help="Backtest only: load checkpoint and evaluate on last N draws (no training)")
     parser.add_argument("--backtest-draws", type=int, default=1000, help="Number of draws to backtest on when --backtest (default 1000)")
+    parser.add_argument("--amp", action="store_true", default=True, help="Use mixed precision (faster on GPU/MPS, default on)")
+    parser.add_argument("--no-amp", action="store_false", dest="amp", help="Disable mixed precision")
+    parser.add_argument("--compile", action="store_true", dest="use_compile", help="Use torch.compile(model) for faster forward/backward (PyTorch 2+)")
+    parser.add_argument("--workers", type=int, default=None, help="DataLoader num_workers (default 2 on cuda/mps, 0 on cpu)")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
@@ -163,6 +167,7 @@ def main() -> None:
         return
 
     console.print(Panel("[bold]4D Transformer[/] — Next-draw prediction from past sequence.", title="[bold cyan]Train[/]", border_style="cyan"))
+    num_workers = args.workers if args.workers is not None else (2 if device.type in ("cuda", "mps") else 0)
     config = Table(show_header=False, box=None, padding=(0, 2))
     config.add_column(style="dim")
     config.add_column()
@@ -175,6 +180,11 @@ def main() -> None:
     config.add_row("Batch size", str(args.batch_size))
     config.add_row("LR", str(args.lr))
     config.add_row("Scheduler", args.scheduler)
+    config.add_row("Workers", str(num_workers))
+    if args.amp:
+        config.add_row("AMP", "on (mixed precision)")
+    if getattr(args, "use_compile", False):
+        config.add_row("Compile", "on")
     if args.label_smoothing > 0:
         config.add_row("Label smoothing", str(args.label_smoothing))
     console.print(config)
@@ -196,10 +206,10 @@ def main() -> None:
         train_ds,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=0,
+        num_workers=num_workers,
         pin_memory=(device.type == "cuda"),
     )
-    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0)
+    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=num_workers)
 
     model = NextDrawTransformer(
         seq_len=args.seq_len,
@@ -209,8 +219,12 @@ def main() -> None:
         dim_feedforward=args.dim_ff,
         dropout=args.dropout,
     ).to(device)
+    if getattr(args, "use_compile", False) and hasattr(torch, "compile"):
+        model = torch.compile(model, mode="reduce-overhead")
     criterion = torch.nn.BCEWithLogitsLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
+    use_amp = args.amp and device.type in ("cuda", "mps")
+    scaler = torch.amp.GradScaler("cuda") if use_amp and device.type == "cuda" else None
     total_steps = args.epochs * len(train_loader)
     if args.scheduler == "onecycle":
         scheduler = torch.optim.lr_scheduler.OneCycleLR(
@@ -231,15 +245,30 @@ def main() -> None:
         train_loss = 0.0
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs}", leave=True, disable=not verbose)
         for X, y in pbar:
-            X, y = X.to(device), y.to(device)
+            X, y = X.to(device, non_blocking=True), y.to(device, non_blocking=True)
             if args.label_smoothing > 0:
                 y = y * (1.0 - args.label_smoothing) + args.label_smoothing * (1.0 - y).clamp(0, 1)
             optimizer.zero_grad()
-            logits = model(X)
-            loss = criterion(logits, y)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
+            if use_amp:
+                with torch.amp.autocast(device.type):
+                    logits = model(X)
+                    loss = criterion(logits, y)
+                if scaler is not None:
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    optimizer.step()
+            else:
+                logits = model(X)
+                loss = criterion(logits, y)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
             if args.scheduler == "onecycle":
                 scheduler.step()
             step += 1
@@ -255,8 +284,13 @@ def main() -> None:
             with torch.no_grad():
                 for X, y in val_loader:
                     X, y = X.to(device), y.to(device)
-                    logits = model(X)
-                    val_loss += criterion(logits, y).item()
+                    if use_amp:
+                        with torch.amp.autocast(device.type):
+                            logits = model(X)
+                            val_loss += criterion(logits, y).item()
+                    else:
+                        logits = model(X)
+                        val_loss += criterion(logits, y).item()
             val_loss /= len(val_loader)
         else:
             val_loss = train_loss

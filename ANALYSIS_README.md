@@ -157,6 +157,8 @@ uv run python -m analysis.run_transformer --max-draws 2000 --epochs 10 --d-model
 
 Options: `--seq-len`, `--d-model`, `--nhead`, `--layers`, `--dim-ff`, `--dropout`, `--epochs`, `--batch-size`, `--lr`, `--val-ratio`, `--checkpoint`. Checkpoint: `output/transformer_4d.pt`.
 
+**Faster training (no accuracy sacrifice):** Mixed precision (AMP) is on by default on GPU/MPS; use `--no-amp` to disable. DataLoader uses 2 workers on cuda/mps. Increase throughput with `--batch-size 64` or `128` if you have enough GPU memory; for long sequences (e.g. `--seq-len 365`) try `--batch-size 64` first. Optional: `--compile` uses `torch.compile(model)` (PyTorch 2+) for extra speed after the first epoch.
+
 **Backtest (eval only):** Load a saved model and evaluate on the last N draws (hit rate + P&L, RM1 per number):
 
 ```bash
