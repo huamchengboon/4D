@@ -52,7 +52,9 @@ def main() -> None:
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--epochs", type=int, default=20, help="Training epochs (default 20)")
     parser.add_argument("--batch-size", type=int, default=64, help="Batch size (default 64)")
-    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate (default 3e-4)")
+    parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate / max LR (default 3e-4)")
+    parser.add_argument("--scheduler", type=str, default="onecycle", choices=("cosine", "onecycle"), help="LR schedule: onecycle (warmup+decay, helps avoid plateaus) or cosine (default onecycle)")
+    parser.add_argument("--label-smoothing", type=float, default=1e-4, help="Smooth BCE targets: negatives 0->this value (default 1e-4). 0 = no smoothing.")
     parser.add_argument("--val-ratio", type=float, default=0.1, help="Fraction of data for validation (default 0.1)")
     parser.add_argument("--max-draws", type=int, default=None, help="Cap total draws (for quick runs)")
     parser.add_argument("--device", type=str, default=None)
@@ -91,6 +93,9 @@ def main() -> None:
     config.add_row("Epochs", str(args.epochs))
     config.add_row("Batch size", str(args.batch_size))
     config.add_row("LR", str(args.lr))
+    config.add_row("Scheduler", args.scheduler)
+    if args.label_smoothing > 0:
+        config.add_row("Label smoothing", str(args.label_smoothing))
     console.print(config)
     console.print()
 
@@ -131,10 +136,21 @@ def main() -> None:
     ).to(device)
     criterion = torch.nn.BCEWithLogitsLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
+    total_steps = args.epochs * len(train_loader)
+    if args.scheduler == "onecycle":
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=args.lr,
+            total_steps=total_steps,
+            pct_start=0.1,
+            anneal_strategy="cos",
+        )
+    else:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     best_val_loss = float("inf")
     checkpoint_path = args.checkpoint or DEFAULT_CHECKPOINT_DIR / "transformer_4d.pt"
+    step = 0
 
     for epoch in range(args.epochs):
         model.train()
@@ -142,15 +158,21 @@ def main() -> None:
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{args.epochs}", leave=True, disable=not verbose)
         for X, y in pbar:
             X, y = X.to(device), y.to(device)
+            if args.label_smoothing > 0:
+                y = y * (1.0 - args.label_smoothing) + args.label_smoothing * (1.0 - y).clamp(0, 1)
             optimizer.zero_grad()
             logits = model(X)
             loss = criterion(logits, y)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
+            if args.scheduler == "onecycle":
+                scheduler.step()
+            step += 1
             train_loss += loss.item()
-            pbar.set_postfix(loss=f"{loss.item():.4f}")
-        scheduler.step()
+            pbar.set_postfix(loss=f"{loss.item():.4f}", lr=f"{scheduler.get_last_lr()[0]:.2e}")
+        if args.scheduler == "cosine":
+            scheduler.step()
         train_loss /= len(train_loader)
 
         model.eval()
