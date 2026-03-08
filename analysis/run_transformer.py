@@ -77,8 +77,10 @@ def main() -> None:
     parser.add_argument("--nhead", type=int, default=8, help="Attention heads (default 8)")
     parser.add_argument("--layers", type=int, default=4, help="Encoder layers (default 4)")
     parser.add_argument("--dim-ff", type=int, default=1024, help="Feedforward dim (default 1024)")
-    parser.add_argument("--dropout", type=float, default=0.1)
-    parser.add_argument("--epochs", type=int, default=20, help="Training epochs (default 20)")
+    parser.add_argument("--dropout", type=float, default=0.1, help="Dropout rate (default 0.1; try 0.15–0.2 to reduce overfitting)")
+    parser.add_argument("--weight-decay", type=float, default=0.01, help="AdamW weight decay (default 0.01)")
+    parser.add_argument("--epochs", type=int, default=20, help="Max training epochs (default 20; early stopping may stop sooner)")
+    parser.add_argument("--early-stopping", type=int, default=5, metavar="N", help="Stop if val loss does not improve for N epochs (default 5; 0 = disabled)")
     parser.add_argument("--batch-size", type=int, default=64, help="Batch size (default 64)")
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate / max LR (default 3e-4)")
     parser.add_argument("--scheduler", type=str, default="onecycle", choices=("cosine", "onecycle"), help="LR schedule: onecycle (warmup+decay, helps avoid plateaus) or cosine (default onecycle)")
@@ -209,7 +211,10 @@ def main() -> None:
     config.add_row("Epochs", str(args.epochs))
     config.add_row("Batch size", str(args.batch_size))
     config.add_row("LR", str(args.lr))
+    config.add_row("Weight decay", str(args.weight_decay))
     config.add_row("Scheduler", args.scheduler)
+    if getattr(args, "early_stopping", 0) > 0:
+        config.add_row("Early stopping", f"patience={args.early_stopping}")
     config.add_row("Workers", str(num_workers))
     if args.amp:
         config.add_row("AMP", "on (mixed precision)")
@@ -265,7 +270,7 @@ def main() -> None:
     if getattr(args, "use_compile", False) and hasattr(torch, "compile"):
         model = torch.compile(model, mode="reduce-overhead")
     criterion = torch.nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.01)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     use_amp = args.amp and device.type in ("cuda", "mps")
     scaler = torch.amp.GradScaler("cuda") if use_amp and device.type == "cuda" else None
     total_steps = args.epochs * len(train_loader)
@@ -281,6 +286,8 @@ def main() -> None:
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     step = 0
+    early_stopping_patience = getattr(args, "early_stopping", 0)
+    epochs_without_improvement = 0
 
     for epoch in range(args.epochs):
         model.train()
@@ -338,12 +345,27 @@ def main() -> None:
             val_loss = train_loss
         if len(val_loader) > 0 and val_loss < best_val_loss:
             best_val_loss = val_loss
+            epochs_without_improvement = 0
             checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
             torch.save({"model": model.state_dict(), "epoch": epoch + 1, "val_loss": val_loss}, checkpoint_path)
             if verbose:
                 logger.info("Best checkpoint saved to {}", checkpoint_path)
+        else:
+            if len(val_loader) > 0:
+                epochs_without_improvement += 1
         if verbose:
             logger.info("Epoch {}  train_loss={:.4f}  val_loss={:.4f}", epoch + 1, train_loss, val_loss if len(val_loader) > 0 else train_loss)
+        if early_stopping_patience > 0 and len(val_loader) > 0 and epochs_without_improvement >= early_stopping_patience:
+            if verbose:
+                logger.info("Early stopping (val loss did not improve for {} epochs). Best val_loss={:.4f}", early_stopping_patience, best_val_loss)
+            break
+
+    # Load best checkpoint so final eval uses best model, not last epoch
+    if checkpoint_path.is_file() and len(val_loader) > 0:
+        ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
+        model.load_state_dict(_state_dict_for_load(ckpt["model"], model), strict=True)
+        if verbose:
+            logger.info("Loaded best checkpoint (epoch {}, val_loss={:.4f}) for final eval", ckpt.get("epoch", "?"), ckpt.get("val_loss", float("nan")))
 
     # Eval: hit rate and P&L on validation set
     model.eval()
