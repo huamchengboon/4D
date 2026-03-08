@@ -14,6 +14,8 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 import polars as pl
+from tqdm import tqdm
+
 from analysis.load import DEFAULT_CSV, load_history, get_draws_with_prizes
 from analysis.prizes import (
     MAGNUM_PRIZE_1ST,
@@ -112,6 +114,8 @@ def all_multisets() -> list[str]:
 def run_best_multiset_backtest(
     operator: str | None = None,
     csv_path: Path | None = None,
+    *,
+    progress: bool = True,
 ) -> tuple[str, list[str], dict]:
     """
     For each of 210 multisets, run 24-number 4D+3D backtest. Return (best_multiset, best_24_numbers, result_dict).
@@ -131,7 +135,9 @@ def run_best_multiset_backtest(
     best_profit = -float("inf")
     best_result = None
 
-    for ms in all_multisets():
+    multisets = all_multisets()
+    iterator = tqdm(multisets, desc="Scanning 210 multisets", unit="ms", disable=not progress)
+    for ms in iterator:
         numbers = multiset_to_24(ms)
         res = backtest_24_numbers(numbers, draws)
         if res["profit_rm"] > best_profit:
@@ -139,6 +145,12 @@ def run_best_multiset_backtest(
             best_multiset = ms
             best_numbers = numbers
             best_result = res
+        # Live update: current best and this multiset's profit
+        iterator.set_postfix(
+            best=best_multiset or "-",
+            best_profit=f"{best_profit:+,.0f}" if best_profit > -float("inf") else "-",
+            current=f"{res['profit_rm']:+,.0f}",
+        )
 
     return best_multiset, best_numbers or [], best_result or {}
 
@@ -146,6 +158,8 @@ def run_best_multiset_backtest(
 def run_top24_individual_backtest(
     operator: str | None = None,
     csv_path: Path | None = None,
+    *,
+    progress: bool = True,
 ) -> tuple[list[str], dict]:
     """
     Compute 4D+3D winnings for each number 0000-9999 when bet alone; take top 24 by profit.
@@ -163,7 +177,7 @@ def run_top24_individual_backtest(
 
     # Per-number profit (4D+3D, RM1 per draw)
     profits = []
-    for i in range(10_000):
+    for i in tqdm(range(10_000), desc="Scanning 10000 numbers", unit="num", disable=not progress):
         num = f"{i:04d}"
         winnings = sum(prize_one_number(num, d) for d in draws)
         profit = winnings - cost_per_number
@@ -185,7 +199,9 @@ def main() -> None:
     parser.add_argument("--operator", type=str, default=None, help="Filter operator (default: all)")
     parser.add_argument("--csv", type=Path, default=None)
     parser.add_argument("--top24", action="store_true", help="Also run Hypothesis 2 (top 24 individual; slow)")
+    parser.add_argument("--quiet", action="store_true", help="Disable tqdm progress bars")
     args = parser.parse_args()
+    progress = not args.quiet
 
     console = Console()
     op_label = args.operator or "All operators"
@@ -194,7 +210,9 @@ def main() -> None:
     # Strategy 1: Best multiset (24 permutations)
     console.print("\n[bold]Hypothesis 1:[/] Best multiset — 24 numbers = all permutations of the multiset with highest 4D+3D profit.")
     try:
-        best_ms, best_nums, res = run_best_multiset_backtest(operator=args.operator, csv_path=args.csv)
+        best_ms, best_nums, res = run_best_multiset_backtest(
+            operator=args.operator, csv_path=args.csv, progress=progress
+        )
         console.print(f"  Best multiset: [green]{best_ms}[/]")
         console.print(f"  Cost: RM {res['cost_rm']:,.0f}  |  Winnings: RM {res['total_winnings_rm']:,.0f}  |  Profit: [{'green' if res['profit_rm'] >= 0 else 'red'}]{res['profit_rm']:+,.0f}[/]")
         console.print(f"  24 numbers: {', '.join(sorted(best_nums))}")
@@ -213,7 +231,9 @@ def main() -> None:
     if args.top24:
         console.print("\n[bold]Hypothesis 2:[/] Top 24 numbers by individual 4D+3D profit (slow).")
         try:
-            top24, res2 = run_top24_individual_backtest(operator=args.operator, csv_path=args.csv)
+            top24, res2 = run_top24_individual_backtest(
+                operator=args.operator, csv_path=args.csv, progress=progress
+            )
             console.print(f"  Cost: RM {res2['cost_rm']:,.0f}  |  Winnings: RM {res2['total_winnings_rm']:,.0f}  |  Profit: [{'green' if res2['profit_rm'] >= 0 else 'red'}]{res2['profit_rm']:+,.0f}[/]")
         except Exception as e:
             console.print(f"  [red]{e}[/]")
