@@ -98,6 +98,63 @@ def backtest_24_numbers(
     }
 
 
+def _precompute_winnings_4d_3d(draws: list[dict], progress: bool = False) -> list[float]:
+    """
+    One pass over all draws: for each number 0-9999, sum 4D+3D prizes (best per draw).
+    Returns list of length 10000: total winnings for number i (as index).
+    """
+    # winnings[i] = total RM won by number i (index 0-9999) across all draws
+    winnings = [0.0] * 10_000
+    it = tqdm(draws, desc="Precompute winnings", unit="draw", disable=not progress)
+    for d in it:
+        # Build prize for this draw: at most 23 4D + up to 30 3D (10 numbers × 3 tiers)
+        # 4D takes precedence over 3D. Only accumulate non-zero entries.
+        draw_prize: dict[int, float] = {}
+        first = d.get("1st")
+        second = d.get("2nd")
+        third = d.get("3rd")
+        special = set(d.get("special") or [])
+        consolation = set(d.get("consolation") or [])
+
+        def set4d(num_str: str, prize: float) -> None:
+            if num_str and len(num_str) >= 4:
+                idx = int(_norm(num_str))
+                if 0 <= idx < 10_000:
+                    draw_prize[idx] = prize
+
+        if first:
+            set4d(first, float(MAGNUM_PRIZE_1ST))
+        if second:
+            set4d(second, float(MAGNUM_PRIZE_2ND))
+        if third:
+            set4d(third, float(MAGNUM_PRIZE_3RD))
+        for n in special:
+            set4d(n, float(MAGNUM_PRIZE_SPECIAL))
+        for n in consolation:
+            set4d(n, float(MAGNUM_PRIZE_CONSOLATION))
+
+        # 3D: last 3 digits match 1st/2nd/3rd (only if 4D not won)
+        def set3d(last3_str: str, prize: float) -> None:
+            if not last3_str or len(last3_str) < 3:
+                return
+            last3 = int(last3_str.strip().zfill(4)[-3:])
+            for first_d in range(10):
+                idx = first_d * 1000 + last3
+                if idx not in draw_prize:
+                    draw_prize[idx] = prize
+
+        if first:
+            set3d(_last3(first), float(MAGNUM_3D_BIG_1ST))
+        if second:
+            set3d(_last3(second), float(MAGNUM_3D_BIG_2ND))
+        if third:
+            set3d(_last3(third), float(MAGNUM_3D_BIG_3RD))
+
+        for idx, p in draw_prize.items():
+            winnings[idx] += p
+    return winnings
+
+
 def multiset_to_24(multiset: str) -> list[str]:
     """Four distinct digits -> 24 permutations as 4-digit strings."""
     s = multiset.strip().zfill(4)
@@ -119,6 +176,7 @@ def run_best_multiset_backtest(
 ) -> tuple[str, list[str], dict]:
     """
     For each of 210 multisets, run 24-number 4D+3D backtest. Return (best_multiset, best_24_numbers, result_dict).
+    Uses one-pass precomputation of per-number winnings (CPU only, no GPU), then O(210×24) lookups.
     """
     path = csv_path or DEFAULT_CSV
     if not path.is_file():
@@ -129,6 +187,11 @@ def run_best_multiset_backtest(
     if df.height == 0:
         raise ValueError("No draws")
     draws = get_draws_with_prizes(df)
+    n_draws = len(draws)
+    cost_per_draw = COST_PER_DRAW
+
+    # One pass: winnings[i] = total RM for number i (index 0-9999)
+    winnings = _precompute_winnings_4d_3d(draws, progress=progress)
 
     best_multiset = None
     best_numbers = None
@@ -136,20 +199,25 @@ def run_best_multiset_backtest(
     best_result = None
 
     multisets = all_multisets()
-    iterator = tqdm(multisets, desc="Scanning 210 multisets", unit="ms", disable=not progress)
-    for ms in iterator:
+    bar = tqdm(multisets, desc="Scanning 210 multisets", unit="ms", disable=not progress)
+    for ms in bar:
         numbers = multiset_to_24(ms)
-        res = backtest_24_numbers(numbers, draws)
-        if res["profit_rm"] > best_profit:
-            best_profit = res["profit_rm"]
+        total_win = sum(winnings[int(n)] for n in numbers)
+        profit = total_win - n_draws * cost_per_draw
+        if profit > best_profit:
+            best_profit = profit
             best_multiset = ms
             best_numbers = numbers
-            best_result = res
-        # Live update: current best and this multiset's profit
-        iterator.set_postfix(
+            best_result = {
+                "cost_rm": n_draws * cost_per_draw,
+                "total_winnings_rm": total_win,
+                "profit_rm": profit,
+                "n_draws": n_draws,
+            }
+        bar.set_postfix(
             best=best_multiset or "-",
             best_profit=f"{best_profit:+,.0f}" if best_profit > -float("inf") else "-",
-            current=f"{res['profit_rm']:+,.0f}",
+            current=f"{profit:+,.0f}",
         )
 
     return best_multiset, best_numbers or [], best_result or {}
