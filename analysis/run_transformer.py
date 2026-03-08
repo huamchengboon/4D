@@ -78,15 +78,31 @@ def _transformer_kwargs(args: argparse.Namespace) -> dict:
     }
 
 
-def _kwargs_from_checkpoint(ckpt: dict, for_backtest: bool = False) -> dict | None:
-    """Return transformer kwargs from checkpoint config if present; else None. For backtest, force use_grad_checkpoint=False."""
+def _kwargs_from_checkpoint(ckpt: dict, args: argparse.Namespace, for_backtest: bool = False) -> dict:
+    """Return transformer kwargs: from checkpoint config if present, else from args, inferring RoPE/GQA from state_dict when config missing."""
+    base = _transformer_kwargs(args)
     config = ckpt.get("config")
-    if not config:
-        return None
-    kwargs = dict(config)
+    if config:
+        base = dict(config)
     if for_backtest:
-        kwargs["use_grad_checkpoint"] = False
-    return kwargs
+        base["use_grad_checkpoint"] = False
+    # When config is missing (old checkpoint), infer RoPE and n_kv_heads from state_dict
+    if not config:
+        state = ckpt.get("model", {})
+        keys = set(state.keys())
+        prefix = "_orig_mod."
+        if any(k.startswith(prefix) for k in keys):
+            keys = {k.removeprefix(prefix) for k in keys}
+        if "transformer_encoder.0.self_attn.rope.cos" in keys:
+            base["use_rope"] = True
+        k_key = "transformer_encoder.0.self_attn.k_proj.weight"
+        k_key_orig = prefix + k_key
+        kw = state.get(k_key) or state.get(k_key_orig)
+        if kw is not None:
+            head_dim = base["d_model"] // base["nhead"]
+            if kw.shape[0] != base["d_model"]:
+                base["n_kv_heads"] = kw.shape[0] // head_dim
+    return base
 
 
 def get_device() -> torch.device:
@@ -173,7 +189,7 @@ def main() -> None:
             console.print(f"[red]Checkpoint not found:[/] {checkpoint_path}")
             sys.exit(1)
         ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
-        bt_kwargs = _kwargs_from_checkpoint(ckpt, for_backtest=True)
+        bt_kwargs = _kwargs_from_checkpoint(ckpt, args, for_backtest=True)
         if bt_kwargs is not None:
             seq_len_bt = bt_kwargs["seq_len"]
         else:
