@@ -62,6 +62,80 @@ class DrawSequenceDataset(torch.utils.data.Dataset):
         return X, y
 
 
+class RMSNorm(nn.Module):
+    """Root-mean-square normalization (LLaMA/SOTA). Lighter than LayerNorm, stable in deep nets."""
+
+    def __init__(self, dim: int, eps: float = 1e-6) -> None:
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        rms = torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+        return (x * rms) * self.weight
+
+
+class SwiGLUFFN(nn.Module):
+    """SwiGLU feed-forward (gate * silu(up)); better accuracy per parameter than standard ReLU/GELU FFN."""
+
+    def __init__(self, d_model: int, dim_feedforward: int, dropout: float = 0.1) -> None:
+        super().__init__()
+        self.gate = nn.Linear(d_model, dim_feedforward)
+        self.up = nn.Linear(d_model, dim_feedforward)
+        self.down = nn.Linear(dim_feedforward, d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.dropout(self.down(torch.nn.functional.silu(self.gate(x)) * self.up(x)))
+
+
+class SotaEncoderLayer(nn.Module):
+    """
+    Encoder layer with pre-norm, RMSNorm, and SwiGLU FFN (SOTA 2025–2026).
+    Improves accuracy and training stability; works with PyTorch SDPA in MHA.
+    """
+
+    def __init__(
+        self,
+        d_model: int,
+        nhead: int,
+        dim_feedforward: int = 1024,
+        dropout: float = 0.1,
+        batch_first: bool = True,
+    ) -> None:
+        super().__init__()
+        self.norm1 = RMSNorm(d_model)
+        self.self_attn = nn.MultiheadAttention(
+            d_model, nhead, dropout=dropout, batch_first=batch_first
+        )
+        self.norm2 = RMSNorm(d_model)
+        self.ffn = SwiGLUFFN(d_model, dim_feedforward, dropout)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(
+        self,
+        src: torch.Tensor,
+        src_mask: torch.Tensor | None = None,
+        src_key_padding_mask: torch.Tensor | None = None,
+        is_causal: bool | None = None,
+    ) -> torch.Tensor:
+        # Pre-norm attention
+        x = src + self._attn_block(src, src_mask, src_key_padding_mask)
+        # Pre-norm SwiGLU FFN
+        x = x + self.ffn(self.norm2(x))
+        return x
+
+    def _attn_block(
+        self,
+        src: torch.Tensor,
+        src_mask: torch.Tensor | None,
+        src_key_padding_mask: torch.Tensor | None,
+    ) -> torch.Tensor:
+        s = self.norm1(src)
+        out, _ = self.self_attn(s, s, s, attn_mask=src_mask, key_padding_mask=src_key_padding_mask)
+        return self.dropout(out)
+
+
 class PositionalEncoding(nn.Module):
     """Sinusoidal positional encoding for transformer."""
 
@@ -102,16 +176,16 @@ class NextDrawTransformer(nn.Module):
         self.d_model = d_model
         self.input_proj = nn.Linear(N_NUMBERS, d_model)
         self.pos_encoder = PositionalEncoding(d_model, max_len=seq_len + 1, dropout=dropout)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model,
-            nhead=nhead,
-            dim_feedforward=dim_feedforward,
-            dropout=dropout,
-            activation="gelu",
-            batch_first=True,
-            norm_first=False,
-        )
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_encoder_layers)
+        self.transformer_encoder = nn.ModuleList([
+            SotaEncoderLayer(
+                d_model=d_model,
+                nhead=nhead,
+                dim_feedforward=dim_feedforward,
+                dropout=dropout,
+                batch_first=True,
+            )
+            for _ in range(num_encoder_layers)
+        ])
         self.head = nn.Linear(d_model, N_NUMBERS)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -123,7 +197,9 @@ class NextDrawTransformer(nn.Module):
         x = self.input_proj(x)
         x = self.pos_encoder(x)
         # (B, L, d_model)
-        enc = self.transformer_encoder(x)
+        for layer in self.transformer_encoder:
+            x = layer(x)
+        enc = x
         # Use last timestep
         last = enc[:, -1, :]  # (B, d_model)
         logits = self.head(last)  # (B, 10000)
