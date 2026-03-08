@@ -53,15 +53,18 @@ Summary of recent architecture and efficiency advances relevant to sequence pred
 
 ---
 
-## 5. Implemented in this repo (accuracy-first)
+## 5. Implemented in this repo (accuracy + speed)
 
-The 4D Transformer now uses a **SOTA encoder layer** by default:
+The 4D Transformer uses a **SOTA encoder layer** by default:
 
 - **Pre-norm** — Normalize before attention and before FFN; more stable gradients.
 - **RMSNorm** — Replaces LayerNorm in the encoder (simpler, stable in deep nets).
 - **SwiGLU FFN** — Gate and up projections with SiLU; then down. Better accuracy per parameter.
+- **SDPA attention** — Custom multi-head attention calling `F.scaled_dot_product_attention` so Flash/memory-efficient backends are used during training (faster than generic MHA path).
+- **torch.compile** — On by default in `run_transformer`; use `--no-compile` to disable (e.g. if first-epoch compile overhead is an issue).
+- **Workers** — Default DataLoader `num_workers=4` on cuda/mps for faster data loading.
 
-Existing checkpoints saved with the old (LayerNorm + GELU FFN) architecture are **not** compatible; train from scratch or use `--no-resume` once.
+Existing checkpoints from older architectures (LayerNorm + GELU FFN, or nn.MultiheadAttention) are **not** compatible; train from scratch or use `--no-resume` once.
 
 ## 6. What else to try (optional)
 

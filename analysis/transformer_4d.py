@@ -89,10 +89,39 @@ class SwiGLUFFN(nn.Module):
         return self.dropout(self.down(torch.nn.functional.silu(self.gate(x)) * self.up(x)))
 
 
+class SDPAMultiheadAttention(nn.Module):
+    """
+    Multi-head self-attention using F.scaled_dot_product_attention.
+    Ensures Flash/memory-efficient backend is used during training for speed.
+    """
+
+    def __init__(self, d_model: int, nhead: int, dropout: float = 0.1) -> None:
+        super().__init__()
+        assert d_model % nhead == 0
+        self.nhead = nhead
+        self.head_dim = d_model // nhead
+        self.qkv_proj = nn.Linear(d_model, 3 * d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+        self.dropout_p = dropout
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, L, _ = x.shape
+        qkv = self.qkv_proj(x)
+        q, k, v = qkv.chunk(3, dim=-1)
+        # (B, L, nhead, head_dim) -> (B, nhead, L, head_dim) for SDPA
+        q = q.view(B, L, self.nhead, self.head_dim).transpose(1, 2)
+        k = k.view(B, L, self.nhead, self.head_dim).transpose(1, 2)
+        v = v.view(B, L, self.nhead, self.head_dim).transpose(1, 2)
+        out = torch.nn.functional.scaled_dot_product_attention(
+            q, k, v, dropout_p=self.dropout_p if self.training else 0.0
+        )
+        out = out.transpose(1, 2).contiguous().view(B, L, -1)
+        return self.out_proj(out)
+
+
 class SotaEncoderLayer(nn.Module):
     """
-    Encoder layer with pre-norm, RMSNorm, and SwiGLU FFN (SOTA 2025–2026).
-    Improves accuracy and training stability; works with PyTorch SDPA in MHA.
+    Encoder layer with pre-norm, RMSNorm, SwiGLU FFN, and SDPA attention (SOTA + speed).
     """
 
     def __init__(
@@ -105,9 +134,7 @@ class SotaEncoderLayer(nn.Module):
     ) -> None:
         super().__init__()
         self.norm1 = RMSNorm(d_model)
-        self.self_attn = nn.MultiheadAttention(
-            d_model, nhead, dropout=dropout, batch_first=batch_first
-        )
+        self.self_attn = SDPAMultiheadAttention(d_model, nhead, dropout)
         self.norm2 = RMSNorm(d_model)
         self.ffn = SwiGLUFFN(d_model, dim_feedforward, dropout)
         self.dropout = nn.Dropout(dropout)
@@ -119,21 +146,11 @@ class SotaEncoderLayer(nn.Module):
         src_key_padding_mask: torch.Tensor | None = None,
         is_causal: bool | None = None,
     ) -> torch.Tensor:
-        # Pre-norm attention
-        x = src + self._attn_block(src, src_mask, src_key_padding_mask)
+        # Pre-norm attention (SDPA; no padding mask in our use case)
+        x = src + self.dropout(self.self_attn(self.norm1(src)))
         # Pre-norm SwiGLU FFN
         x = x + self.ffn(self.norm2(x))
         return x
-
-    def _attn_block(
-        self,
-        src: torch.Tensor,
-        src_mask: torch.Tensor | None,
-        src_key_padding_mask: torch.Tensor | None,
-    ) -> torch.Tensor:
-        s = self.norm1(src)
-        out, _ = self.self_attn(s, s, s, attn_mask=src_mask, key_padding_mask=src_key_padding_mask)
-        return self.dropout(out)
 
 
 class PositionalEncoding(nn.Module):

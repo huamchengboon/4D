@@ -64,8 +64,9 @@ def main() -> None:
     parser.add_argument("--backtest-draws", type=int, default=1000, help="Number of draws to backtest on when --backtest (default 1000)")
     parser.add_argument("--amp", action="store_true", default=True, help="Use mixed precision (faster on GPU/MPS, default on)")
     parser.add_argument("--no-amp", action="store_false", dest="amp", help="Disable mixed precision")
-    parser.add_argument("--compile", action="store_true", dest="use_compile", help="Use torch.compile(model) for faster forward/backward (PyTorch 2+)")
-    parser.add_argument("--workers", type=int, default=None, help="DataLoader num_workers (default 2 on cuda/mps, 0 on cpu)")
+    parser.add_argument("--compile", action="store_true", dest="use_compile", default=True, help="Use torch.compile(model) for speed (default on)")
+    parser.add_argument("--no-compile", action="store_false", dest="use_compile", help="Disable torch.compile")
+    parser.add_argument("--workers", type=int, default=None, help="DataLoader num_workers (default 4 on cuda/mps, 0 on cpu)")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
@@ -168,7 +169,7 @@ def main() -> None:
         return
 
     console.print(Panel("[bold]4D Transformer[/] — Next-draw prediction from past sequence.", title="[bold cyan]Train[/]", border_style="cyan"))
-    num_workers = args.workers if args.workers is not None else (2 if device.type in ("cuda", "mps") else 0)
+    num_workers = args.workers if args.workers is not None else (4 if device.type in ("cuda", "mps") else 0)
     config = Table(show_header=False, box=None, padding=(0, 2))
     config.add_column(style="dim")
     config.add_column()
