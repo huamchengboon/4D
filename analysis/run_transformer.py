@@ -33,6 +33,14 @@ from analysis.transformer_4d import (
 DEFAULT_CHECKPOINT_DIR = _root / "output"
 
 
+def _state_dict_for_load(state_dict: dict) -> dict:
+    """Strip torch.compile prefix so checkpoint saved from compiled model loads into raw model."""
+    prefix = "_orig_mod."
+    if not any(k.startswith(prefix) for k in state_dict):
+        return state_dict
+    return {k.removeprefix(prefix): v for k, v in state_dict.items()}
+
+
 def get_device() -> torch.device:
     if torch.cuda.is_available():
         return torch.device("cuda")
@@ -126,7 +134,7 @@ def main() -> None:
             dropout=args.dropout,
         ).to(device)
         ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
-        model.load_state_dict(ckpt["model"])
+        model.load_state_dict(_state_dict_for_load(ckpt["model"]), strict=True)
         model.eval()
         all_preds: list[list[int]] = []
         batch_size = 64
@@ -226,7 +234,7 @@ def main() -> None:
     if checkpoint_path.is_file() and not getattr(args, "no_resume", False):
         ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
         try:
-            model.load_state_dict(ckpt["model"], strict=True)
+            model.load_state_dict(_state_dict_for_load(ckpt["model"]), strict=True)
             start_epoch = ckpt.get("epoch", 0)
             best_val_loss = ckpt.get("val_loss", float("inf"))
             if verbose:
