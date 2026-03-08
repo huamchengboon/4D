@@ -59,6 +59,7 @@ def main() -> None:
     parser.add_argument("--max-draws", type=int, default=None, help="Cap total draws (for quick runs)")
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--checkpoint", type=Path, default=None, help="Save/load model path (default output/transformer_4d.pt)")
+    parser.add_argument("--no-resume", action="store_true", help="Do not load checkpoint when training; start from scratch even if checkpoint exists")
     parser.add_argument("--backtest", action="store_true", help="Backtest only: load checkpoint and evaluate on last N draws (no training)")
     parser.add_argument("--backtest-draws", type=int, default=1000, help="Number of draws to backtest on when --backtest (default 1000)")
     parser.add_argument("--amp", action="store_true", default=True, help="Use mixed precision (faster on GPU/MPS, default on)")
@@ -219,6 +220,19 @@ def main() -> None:
         dim_feedforward=args.dim_ff,
         dropout=args.dropout,
     ).to(device)
+    start_epoch = 0
+    best_val_loss = float("inf")
+    if checkpoint_path.is_file() and not getattr(args, "no_resume", False):
+        ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
+        try:
+            model.load_state_dict(ckpt["model"], strict=True)
+            start_epoch = ckpt.get("epoch", 0)
+            best_val_loss = ckpt.get("val_loss", float("inf"))
+            if verbose:
+                logger.info("Resumed from {} (saved epoch {}, val_loss={:.4f})", checkpoint_path, start_epoch, best_val_loss)
+        except Exception as e:
+            if verbose:
+                logger.warning("Could not resume from {}: {} — starting from scratch", checkpoint_path, e)
     if getattr(args, "use_compile", False) and hasattr(torch, "compile"):
         model = torch.compile(model, mode="reduce-overhead")
     criterion = torch.nn.BCEWithLogitsLoss()
@@ -237,7 +251,6 @@ def main() -> None:
     else:
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
-    best_val_loss = float("inf")
     step = 0
 
     for epoch in range(args.epochs):
