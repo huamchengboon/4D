@@ -33,12 +33,32 @@ from analysis.transformer_4d import (
 DEFAULT_CHECKPOINT_DIR = _root / "output"
 
 
-def _state_dict_for_load(state_dict: dict) -> dict:
-    """Strip torch.compile prefix so checkpoint saved from compiled model loads into raw model."""
+def _state_dict_for_load(
+    state_dict: dict,
+    model: torch.nn.Module | None = None,
+) -> dict:
+    """Strip torch.compile prefix and fix shape mismatches (e.g. pos_encoder.pe when seq_len differs)."""
     prefix = "_orig_mod."
-    if not any(k.startswith(prefix) for k in state_dict):
+    if any(k.startswith(prefix) for k in state_dict):
+        state_dict = {k.removeprefix(prefix): v for k, v in state_dict.items()}
+    if model is None:
         return state_dict
-    return {k.removeprefix(prefix): v for k, v in state_dict.items()}
+    # Fix pos_encoder.pe if checkpoint was saved with different seq_len
+    pe_key = "pos_encoder.pe"
+    if pe_key in state_dict:
+        pe = state_dict[pe_key]
+        model_pe = getattr(model, "pos_encoder", None) and getattr(model.pos_encoder, "pe", None)
+        if model_pe is not None and pe.shape != model_pe.shape and pe.dim() == 3:
+            # Slice or pad on sequence dim (dim=1) to match model
+            need = model_pe.shape[1]
+            if pe.shape[1] >= need:
+                state_dict = {**state_dict, pe_key: pe[:, :need, :].clone()}
+            else:
+                # Checkpoint has shorter PE; copy and leave rest as model init (rare)
+                new_pe = model_pe.clone()
+                new_pe[:, : pe.shape[1], :] = pe
+                state_dict = {**state_dict, pe_key: new_pe}
+    return state_dict
 
 
 def get_device() -> torch.device:
@@ -134,7 +154,7 @@ def main() -> None:
             dropout=args.dropout,
         ).to(device)
         ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
-        model.load_state_dict(_state_dict_for_load(ckpt["model"]), strict=True)
+        model.load_state_dict(_state_dict_for_load(ckpt["model"], model), strict=True)
         model.eval()
         all_preds: list[list[int]] = []
         batch_size = 64
@@ -234,7 +254,7 @@ def main() -> None:
     if checkpoint_path.is_file() and not getattr(args, "no_resume", False):
         ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
         try:
-            model.load_state_dict(_state_dict_for_load(ckpt["model"]), strict=True)
+            model.load_state_dict(_state_dict_for_load(ckpt["model"], model), strict=True)
             start_epoch = ckpt.get("epoch", 0)
             best_val_loss = ckpt.get("val_loss", float("inf"))
             if verbose:
