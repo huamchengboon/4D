@@ -156,3 +156,10 @@ uv run python -m analysis.run_transformer --max-draws 2000 --epochs 10 --d-model
 ```
 
 Options: `--seq-len`, `--d-model`, `--nhead`, `--layers`, `--dim-ff`, `--dropout`, `--epochs`, `--batch-size`, `--lr`, `--val-ratio`, `--checkpoint`. Checkpoint: `output/transformer_4d.pt`.
+
+**Backtest (eval only):** Load a saved model and evaluate on the last N draws (hit rate + P&L, RM1 per number):
+
+```bash
+uv run python -m analysis.run_transformer --backtest --checkpoint output/transformer_4d.pt
+uv run python -m analysis.run_transformer --backtest --backtest-draws 2000
+```

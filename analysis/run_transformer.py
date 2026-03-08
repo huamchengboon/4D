@@ -24,9 +24,9 @@ if str(_root) not in sys.path:
 from analysis.load import get_draws_as_sets, get_draws_with_prizes, load_history
 from analysis.prizes import compute_draw_winnings, compute_profit_loss
 from analysis.transformer_4d import (
-    N_NUMBERS,
     DrawSequenceDataset,
     NextDrawTransformer,
+    draw_set_to_multi_hot,
     predict_top_k,
 )
 
@@ -58,7 +58,9 @@ def main() -> None:
     parser.add_argument("--val-ratio", type=float, default=0.1, help="Fraction of data for validation (default 0.1)")
     parser.add_argument("--max-draws", type=int, default=None, help="Cap total draws (for quick runs)")
     parser.add_argument("--device", type=str, default=None)
-    parser.add_argument("--checkpoint", type=Path, default=None, help="Save best model path")
+    parser.add_argument("--checkpoint", type=Path, default=None, help="Save/load model path (default output/transformer_4d.pt)")
+    parser.add_argument("--backtest", action="store_true", help="Backtest only: load checkpoint and evaluate on last N draws (no training)")
+    parser.add_argument("--backtest-draws", type=int, default=1000, help="Number of draws to backtest on when --backtest (default 1000)")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args()
 
@@ -81,6 +83,85 @@ def main() -> None:
         sys.exit(1)
 
     device = torch.device(args.device) if args.device else get_device()
+    checkpoint_path = args.checkpoint or DEFAULT_CHECKPOINT_DIR / "transformer_4d.pt"
+
+    df = load_history(str(csv_path))
+    draws = get_draws_as_sets(df)
+    draws_with_prizes = get_draws_with_prizes(df)
+    if args.max_draws is not None and args.max_draws < len(draws):
+        draws = draws[: args.max_draws]
+        draws_with_prizes = draws_with_prizes[: len(draws)] if draws_with_prizes else []
+    n = len(draws)
+
+    if args.backtest:
+        if not checkpoint_path.is_file():
+            console.print(f"[red]Checkpoint not found:[/] {checkpoint_path}")
+            sys.exit(1)
+        n_bt = min(args.backtest_draws, n - args.seq_len)
+        if n_bt <= 0:
+            console.print("[red]Not enough draws for backtest (need seq_len + at least 1).[/]")
+            sys.exit(1)
+        console.print(Panel("[bold]4D Transformer backtest[/] — Evaluate saved model on last draws.", title="[bold cyan]Backtest[/]", border_style="cyan"))
+        config_bt = Table(show_header=False, box=None, padding=(0, 2))
+        config_bt.add_column(style="dim")
+        config_bt.add_column()
+        config_bt.add_row("Checkpoint", str(checkpoint_path))
+        config_bt.add_row("Backtest draws", str(n_bt))
+        config_bt.add_row("Seq len", str(args.seq_len))
+        config_bt.add_row("Device", str(device))
+        console.print(config_bt)
+        console.print()
+        model = NextDrawTransformer(
+            seq_len=args.seq_len,
+            d_model=args.d_model,
+            nhead=args.nhead,
+            num_encoder_layers=args.layers,
+            dim_feedforward=args.dim_ff,
+            dropout=args.dropout,
+        ).to(device)
+        ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
+        model.load_state_dict(ckpt["model"])
+        model.eval()
+        all_preds: list[list[int]] = []
+        batch_size = 64
+        start_idx = n - n_bt - args.seq_len
+        with torch.no_grad():
+            for i in tqdm(range(0, n_bt, batch_size), desc="Backtest", disable=not verbose):
+                batch_end = min(i + batch_size, n_bt)
+                X_list = []
+                for j in range(i, batch_end):
+                    seq_start = start_idx + j
+                    seq_draws = [draws[seq_start + k][2] for k in range(args.seq_len)]
+                    X_list.append(torch.stack([draw_set_to_multi_hot(s) for s in seq_draws], dim=0))
+                X = torch.stack(X_list, dim=0).to(device)
+                preds = predict_top_k(model, X, k=23)
+                all_preds.extend(preds)
+        seq_len = args.seq_len
+        bt_prizes = draws_with_prizes[start_idx + seq_len : start_idx + seq_len + len(all_preds)] if draws_with_prizes else []
+        while len(bt_prizes) < len(all_preds):
+            bt_prizes.append({})
+        hits = 0
+        for idx, pred_indices in enumerate(all_preds):
+            actual = draws[start_idx + seq_len + idx][2]
+            pred_set = {f"{x:04d}" for x in pred_indices}
+            actual_norm = {str(a).strip().zfill(4) for a in actual}
+            if pred_set & actual_norm:
+                hits += 1
+        hit_rate = hits / len(all_preds) if all_preds else 0
+        results = [type("R", (), {"action": p})() for p in all_preds]
+        _cost, _win, _profit = compute_profit_loss(results, bt_prizes, bet_per_number=1.0)
+        summary = Table(title="Backtest", box=None, show_header=False, padding=(0, 2))
+        summary.add_column(style="dim")
+        summary.add_column(style="bold")
+        summary.add_row("Draws", str(len(all_preds)))
+        summary.add_row("Hits", f"{hits}/{len(all_preds)}")
+        summary.add_row("Hit rate", f"{hit_rate:.4f}")
+        summary.add_row("Cost (RM)", f"{_cost:,.0f}")
+        summary.add_row("Winnings (RM)", f"{_win:,.0f}")
+        summary.add_row("Profit / Loss (RM)", f"[{'green' if _profit >= 0 else 'red'}]{_profit:+,.0f}[/]")
+        console.print(Panel(summary, title="[bold green]Done[/]", border_style="green"))
+        return
+
     console.print(Panel("[bold]4D Transformer[/] — Next-draw prediction from past sequence.", title="[bold cyan]Train[/]", border_style="cyan"))
     config = Table(show_header=False, box=None, padding=(0, 2))
     config.add_column(style="dim")
@@ -99,13 +180,7 @@ def main() -> None:
     console.print(config)
     console.print()
 
-    df = load_history(str(csv_path))
-    draws = get_draws_as_sets(df)
-    draws_with_prizes = get_draws_with_prizes(df)
-    if args.max_draws is not None and args.max_draws < len(draws):
-        draws = draws[: args.max_draws]
-        draws_with_prizes = draws_with_prizes[: len(draws)]
-    n = len(draws)
+    # draws, draws_with_prizes, n already set above (before backtest branch)
     if n < 2 * (args.seq_len + 1):
         console.print("[red]Not enough draws (need at least 2*(seq_len+1)).[/]")
         sys.exit(1)
@@ -149,7 +224,6 @@ def main() -> None:
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     best_val_loss = float("inf")
-    checkpoint_path = args.checkpoint or DEFAULT_CHECKPOINT_DIR / "transformer_4d.pt"
     step = 0
 
     for epoch in range(args.epochs):
