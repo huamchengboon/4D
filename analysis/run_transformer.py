@@ -86,15 +86,21 @@ def _kwargs_from_checkpoint(ckpt: dict, args: argparse.Namespace, for_backtest: 
         base = dict(config)
     if for_backtest:
         base["use_grad_checkpoint"] = False
-    # When config is missing (old checkpoint), infer RoPE and n_kv_heads from state_dict
+    # When config is missing (old checkpoint), infer RoPE, seq_len, and n_kv_heads from state_dict
     if not config:
         state = ckpt.get("model", {})
         keys = set(state.keys())
         prefix = "_orig_mod."
         if any(k.startswith(prefix) for k in keys):
             keys = {k.removeprefix(prefix) for k in keys}
-        if "transformer_encoder.0.self_attn.rope.cos" in keys:
+        rope_cos_key = "transformer_encoder.0.self_attn.rope.cos"
+        rope_cos_key_orig = prefix + rope_cos_key
+        if rope_cos_key in keys or rope_cos_key_orig in keys:
             base["use_rope"] = True
+            rope_cos = state[rope_cos_key] if rope_cos_key in state else (state[rope_cos_key_orig] if rope_cos_key_orig in state else None)
+            if rope_cos is not None and rope_cos.dim() >= 3:
+                # RoPE max_len = seq_len + 1 in NextDrawTransformer
+                base["seq_len"] = int(rope_cos.shape[2]) - 1
         k_key = "transformer_encoder.0.self_attn.k_proj.weight"
         k_key_orig = prefix + k_key
         kw = state[k_key] if k_key in state else (state[k_key_orig] if k_key_orig in state else None)
