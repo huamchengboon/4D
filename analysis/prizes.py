@@ -11,6 +11,22 @@ MAGNUM_PRIZE_3RD = 500
 MAGNUM_PRIZE_SPECIAL = 180
 MAGNUM_PRIZE_CONSOLATION = 60
 
+# Magnum 4D Small forecast: only 1st/2nd/3rd pay; Special & Consolation = 0
+MAGNUM_SMALL_PRIZE_1ST = 3_500
+MAGNUM_SMALL_PRIZE_2ND = 2_000
+MAGNUM_SMALL_PRIZE_3RD = 1_000
+MAGNUM_SMALL_PRIZE_SPECIAL = 0
+MAGNUM_SMALL_PRIZE_CONSOLATION = 0
+
+# 3D (last 3 digits match): when your number's last 3 digits match 1st/2nd/3rd prize's last 3
+# Source: check4d.org Malaysia prize structure
+MAGNUM_3D_BIG_1ST = 250   # last 3 match 1st prize
+MAGNUM_3D_BIG_2ND = 210   # last 3 match 2nd prize
+MAGNUM_3D_BIG_3RD = 150   # last 3 match 3rd prize
+MAGNUM_3D_SMALL_1ST = 660  # last 3 match 1st only; Small has no 3D 2nd/3rd
+MAGNUM_3D_SMALL_2ND = 0
+MAGNUM_3D_SMALL_3RD = 0
+
 # Cost per draw when betting RM1 on each of 23 numbers
 COST_PER_DRAW_RM = 23.0
 
