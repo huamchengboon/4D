@@ -7,6 +7,7 @@ Fast supervised training with BCE loss; eval hit rate and P&L.
 from __future__ import annotations
 
 import argparse
+import random
 import sys
 from pathlib import Path
 
@@ -90,8 +91,8 @@ def main() -> None:
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--checkpoint", type=Path, default=None, help="Save/load model path (default output/transformer_4d.pt)")
     parser.add_argument("--no-resume", action="store_true", help="Do not load checkpoint when training; start from scratch even if checkpoint exists")
-    parser.add_argument("--backtest", action="store_true", help="Backtest only: load checkpoint and evaluate on last N draws (no training)")
-    parser.add_argument("--backtest-draws", type=int, default=1000, help="Number of draws to backtest on when --backtest (default 1000)")
+    parser.add_argument("--backtest", action="store_true", help="Backtest only: load checkpoint and evaluate on N random draws (no training)")
+    parser.add_argument("--backtest-draws", type=int, default=1000, help="Number of random draws to backtest on when --backtest (default 1000)")
     parser.add_argument("--amp", action="store_true", default=True, help="Use mixed precision (faster on GPU/MPS, default on)")
     parser.add_argument("--no-amp", action="store_false", dest="amp", help="Disable mixed precision")
     parser.add_argument("--compile", action="store_true", dest="use_compile", default=True, help="Use torch.compile(model) for speed (default on)")
@@ -133,11 +134,13 @@ def main() -> None:
         if not checkpoint_path.is_file():
             console.print(f"[red]Checkpoint not found:[/] {checkpoint_path}")
             sys.exit(1)
-        n_bt = min(args.backtest_draws, n - args.seq_len)
+        valid_indices = list(range(args.seq_len, n))
+        n_bt = min(args.backtest_draws, len(valid_indices))
         if n_bt <= 0:
             console.print("[red]Not enough draws for backtest (need seq_len + at least 1).[/]")
             sys.exit(1)
-        console.print(Panel("[bold]4D Transformer backtest[/] — Evaluate saved model on last draws.", title="[bold cyan]Backtest[/]", border_style="cyan"))
+        sample_indices = random.sample(valid_indices, n_bt)
+        console.print(Panel("[bold]4D Transformer backtest[/] — Evaluate on N random draws (no seed).", title="[bold cyan]Backtest[/]", border_style="cyan"))
         config_bt = Table(show_header=False, box=None, padding=(0, 2))
         config_bt.add_column(style="dim")
         config_bt.add_column()
@@ -160,25 +163,24 @@ def main() -> None:
         model.eval()
         all_preds: list[list[int]] = []
         batch_size = 64
-        start_idx = n - n_bt - args.seq_len
         with torch.no_grad():
             for i in tqdm(range(0, n_bt, batch_size), desc="Backtest", disable=not verbose):
                 batch_end = min(i + batch_size, n_bt)
+                batch_indices = sample_indices[i:batch_end]
                 X_list = []
-                for j in range(i, batch_end):
-                    seq_start = start_idx + j
-                    seq_draws = [draws[seq_start + k][2] for k in range(args.seq_len)]
+                for t in batch_indices:
+                    seq_draws = [draws[t - args.seq_len + k][2] for k in range(args.seq_len)]
                     X_list.append(torch.stack([draw_set_to_multi_hot(s) for s in seq_draws], dim=0))
                 X = torch.stack(X_list, dim=0).to(device)
                 preds = predict_top_k(model, X, k=23)
                 all_preds.extend(preds)
-        seq_len = args.seq_len
-        bt_prizes = draws_with_prizes[start_idx + seq_len : start_idx + seq_len + len(all_preds)] if draws_with_prizes else []
+        bt_prizes = [draws_with_prizes[t] if t < len(draws_with_prizes) else {} for t in sample_indices]
         while len(bt_prizes) < len(all_preds):
             bt_prizes.append({})
         hits = 0
         for idx, pred_indices in enumerate(all_preds):
-            actual = draws[start_idx + seq_len + idx][2]
+            t = sample_indices[idx]
+            actual = draws[t][2]
             pred_set = {f"{x:04d}" for x in pred_indices}
             actual_norm = {str(a).strip().zfill(4) for a in actual}
             if pred_set & actual_norm:
