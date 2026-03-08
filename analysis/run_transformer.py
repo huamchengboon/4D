@@ -363,7 +363,12 @@ def main() -> None:
     # Load best checkpoint so final eval uses best model, not last epoch
     if checkpoint_path.is_file() and len(val_loader) > 0:
         ckpt = torch.load(checkpoint_path, map_location=device, weights_only=True)
-        model.load_state_dict(_state_dict_for_load(ckpt["model"], model), strict=True)
+        state = _state_dict_for_load(ckpt["model"], model)
+        # Compiled model expects _orig_mod.* keys; checkpoint may have raw keys
+        first_key = next(iter(model.state_dict()), "")
+        if first_key.startswith("_orig_mod.") and not next(iter(state), "").startswith("_orig_mod."):
+            state = {"_orig_mod." + k: v for k, v in state.items()}
+        model.load_state_dict(state, strict=True)
         if verbose:
             logger.info("Loaded best checkpoint (epoch {}, val_loss={:.4f}) for final eval", ckpt.get("epoch", "?"), ckpt.get("val_loss", float("nan")))
 
