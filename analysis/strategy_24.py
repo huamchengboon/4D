@@ -275,6 +275,54 @@ def run_top24_individual_backtest(
     return top24, res
 
 
+def _main_by_operator(console: "Console", args: "argparse.Namespace") -> None:
+    from rich.panel import Panel
+    from rich.table import Table
+
+    path = args.csv or DEFAULT_CSV
+    if not path.is_file():
+        console.print(f"[red]CSV not found: {path}[/]")
+        return
+    df = load_history(str(path))
+    operators = df["operator"].unique().sort().to_list()
+    progress = not getattr(args, "quiet", False)
+
+    console.print(Panel("[bold]Best 24 numbers per operator (4D+3D Big, RM1×24 per draw)[/]", border_style="cyan"))
+    console.print("Each operator uses only its own draws; the 24 numbers are the top 24 by profit for that operator.\n")
+
+    results = []
+    for op in tqdm(operators, desc="By operator", unit="op", disable=not progress):
+        op_str = str(op)
+        try:
+            winnings, n_draws = get_precomputed_winnings(
+                operator=op_str, csv_path=path, progress=False
+            )
+            top24, res = run_top24_individual_backtest(_winnings=winnings, _n_draws=n_draws)
+            results.append((op_str, n_draws, top24, res))
+        except Exception as e:
+            console.print(f"[red]{op_str}: {e}[/]")
+
+    for op_str, n_draws, top24, res in results:
+        profit = res["profit_rm"]
+        style = "green" if profit >= 0 else "red"
+        console.print(Panel(
+            f"[bold]{op_str}[/] — {n_draws} draws | Cost RM {res['cost_rm']:,.0f} | Winnings RM {res['total_winnings_rm']:,.0f} | Profit [{style}]{profit:+,.0f}[/] RM",
+            border_style="blue",
+        ))
+        console.print(f"  24 numbers: {', '.join(sorted(top24))}")
+        console.print()
+
+    console.print("[bold]Summary[/]")
+    t = Table(show_header=True, header_style="bold")
+    t.add_column("Operator", style="dim")
+    t.add_column("Draws", justify="right")
+    t.add_column("Profit (RM)", justify="right")
+    for op_str, n_draws, _top24, res in results:
+        p = res["profit_rm"]
+        t.add_row(op_str, str(n_draws), f"[{'green' if p >= 0 else 'red'}]{p:+,.0f}[/]")
+    console.print(t)
+
+
 def main() -> None:
     import argparse
     from rich.console import Console
@@ -282,12 +330,18 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Find best 24-number strategy (4D+3D Big), same 24 for all draws")
     parser.add_argument("--operator", type=str, default=None, help="Filter operator (default: all)")
+    parser.add_argument("--by-operator", action="store_true", help="Show best 24 numbers per operator (Magnum, Sports Toto, Da Ma Cai)")
     parser.add_argument("--csv", type=Path, default=None)
     parser.add_argument("--quiet", action="store_true", help="Disable tqdm progress bars")
     args = parser.parse_args()
     progress = not args.quiet
 
     console = Console()
+
+    if args.by_operator:
+        _main_by_operator(console, args)
+        return
+
     op_label = args.operator or "All operators"
     console.print(Panel(f"[bold]24-number strategy backtest (4D + 3D Big, RM1×24 per draw) — {op_label}[/]", border_style="cyan"))
 

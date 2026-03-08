@@ -41,11 +41,26 @@ So the **best 24 numbers under the “one multiset” constraint** is 1237; the 
 
 ---
 
+## Best 24 numbers per operator
+
+If you want **per-operator** best 24 (each operator’s draws only, its own top 24):
+
+```bash
+uv run python -m analysis.strategy_24 --by-operator
+```
+
+Example (backtest): **Magnum 4D** and **Sports Toto 4D** and **Da Ma Cai 1+3D** each get a different set of 24 numbers and each is profitable (e.g. Magnum +269,720, Sports Toto +245,802, Da Ma Cai +262,364). The 24 numbers are listed in the output per operator.
+
+---
+
 ## How to reproduce
 
 ```bash
 # Both strategies (precompute once, then best multiset + top 24 individual)
 uv run python -m analysis.strategy_24
+
+# Best 24 numbers per operator (Magnum, Sports Toto, Da Ma Cai)
+uv run python -m analysis.strategy_24 --by-operator
 
 # With operator filter (e.g. Magnum only)
 uv run python -m analysis.strategy_24 --operator "Magnum 4D"
