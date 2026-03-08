@@ -168,15 +168,15 @@ def all_multisets() -> list[str]:
     return ["".join(str(d) for d in c) for c in combinations(range(10), 4)]
 
 
-def run_best_multiset_backtest(
+def get_precomputed_winnings(
     operator: str | None = None,
     csv_path: Path | None = None,
     *,
     progress: bool = True,
-) -> tuple[str, list[str], dict]:
+) -> tuple[list[float], int]:
     """
-    For each of 210 multisets, run 24-number 4D+3D backtest. Return (best_multiset, best_24_numbers, result_dict).
-    Uses one-pass precomputation of per-number winnings (CPU only, no GPU), then O(210×24) lookups.
+    Load draws, precompute 4D+3D winnings for each number 0-9999. Return (winnings list, n_draws).
+    Reuse this for both best-multiset and top-24-individual strategies.
     """
     path = csv_path or DEFAULT_CSV
     if not path.is_file():
@@ -188,10 +188,28 @@ def run_best_multiset_backtest(
         raise ValueError("No draws")
     draws = get_draws_with_prizes(df)
     n_draws = len(draws)
-    cost_per_draw = COST_PER_DRAW
-
-    # One pass: winnings[i] = total RM for number i (index 0-9999)
     winnings = _precompute_winnings_4d_3d(draws, progress=progress)
+    return winnings, n_draws
+
+
+def run_best_multiset_backtest(
+    operator: str | None = None,
+    csv_path: Path | None = None,
+    *,
+    progress: bool = True,
+    _winnings: list[float] | None = None,
+    _n_draws: int | None = None,
+) -> tuple[str, list[str], dict]:
+    """
+    For each of 210 multisets, run 24-number 4D+3D backtest. Return (best_multiset, best_24_numbers, result_dict).
+    Uses one-pass precomputation of per-number winnings (CPU only, no GPU), then O(210×24) lookups.
+    """
+    if _winnings is not None and _n_draws is not None:
+        winnings = _winnings
+        n_draws = _n_draws
+    else:
+        winnings, n_draws = get_precomputed_winnings(operator=operator, csv_path=csv_path, progress=progress)
+    cost_per_draw = COST_PER_DRAW
 
     best_multiset = None
     best_numbers = None
@@ -228,32 +246,32 @@ def run_top24_individual_backtest(
     csv_path: Path | None = None,
     *,
     progress: bool = True,
+    _winnings: list[float] | None = None,
+    _n_draws: int | None = None,
 ) -> tuple[list[str], dict]:
     """
-    Compute 4D+3D winnings for each number 0000-9999 when bet alone; take top 24 by profit.
-    Backtest that set of 24. Return (list of 24 numbers, result_dict).
+    Pick the 24 individual numbers (from 0000-9999) with highest 4D+3D profit when bet RM1 each.
+    They need not be from one multiset. Return (list of 24 numbers, result_dict).
+    Uses precomputed winnings so it's fast.
     """
-    path = csv_path or DEFAULT_CSV
-    if not path.is_file():
-        raise FileNotFoundError(f"CSV not found: {path}")
-    df = load_history(str(path))
-    if operator is not None:
-        df = df.filter(pl.col("operator") == operator)
-    draws = get_draws_with_prizes(df)
-    n_draws = len(draws)
-    cost_per_number = n_draws * 1.0
+    if _winnings is not None and _n_draws is not None:
+        winnings = _winnings
+        n_draws = _n_draws
+    else:
+        winnings, n_draws = get_precomputed_winnings(operator=operator, csv_path=csv_path, progress=progress)
 
-    # Per-number profit (4D+3D, RM1 per draw)
-    profits = []
-    for i in tqdm(range(10_000), desc="Scanning 10000 numbers", unit="num", disable=not progress):
-        num = f"{i:04d}"
-        winnings = sum(prize_one_number(num, d) for d in draws)
-        profit = winnings - cost_per_number
-        profits.append((num, profit))
+    cost_per_draw = COST_PER_DRAW
+    # profit[i] = winnings[i] - n_draws (one number costs n_draws over history)
+    profits = [(f"{i:04d}", winnings[i] - n_draws) for i in range(10_000)]
     profits.sort(key=lambda x: -x[1])
     top24 = [p[0] for p in profits[:24]]
-
-    res = backtest_24_numbers(top24, draws)
+    total_win = sum(winnings[int(n)] for n in top24)
+    res = {
+        "cost_rm": n_draws * cost_per_draw,
+        "total_winnings_rm": total_win,
+        "profit_rm": total_win - n_draws * cost_per_draw,
+        "n_draws": n_draws,
+    }
     return top24, res
 
 
@@ -261,12 +279,10 @@ def main() -> None:
     import argparse
     from rich.console import Console
     from rich.panel import Panel
-    from rich.table import Table
 
     parser = argparse.ArgumentParser(description="Find best 24-number strategy (4D+3D Big), same 24 for all draws")
     parser.add_argument("--operator", type=str, default=None, help="Filter operator (default: all)")
     parser.add_argument("--csv", type=Path, default=None)
-    parser.add_argument("--top24", action="store_true", help="Also run Hypothesis 2 (top 24 individual; slow)")
     parser.add_argument("--quiet", action="store_true", help="Disable tqdm progress bars")
     args = parser.parse_args()
     progress = not args.quiet
@@ -275,38 +291,42 @@ def main() -> None:
     op_label = args.operator or "All operators"
     console.print(Panel(f"[bold]24-number strategy backtest (4D + 3D Big, RM1×24 per draw) — {op_label}[/]", border_style="cyan"))
 
-    # Strategy 1: Best multiset (24 permutations)
-    console.print("\n[bold]Hypothesis 1:[/] Best multiset — 24 numbers = all permutations of the multiset with highest 4D+3D profit.")
+    # Precompute once; use for both strategies
+    try:
+        winnings, n_draws = get_precomputed_winnings(
+            operator=args.operator, csv_path=args.csv, progress=progress
+        )
+    except Exception as e:
+        console.print(f"[red]{e}[/]")
+        return
+
+    # Hypothesis 1: Best multiset (24 = permutations of one multiset)
+    console.print("\n[bold]Hypothesis 1:[/] Best multiset — 24 numbers = all permutations of one multiset.")
     try:
         best_ms, best_nums, res = run_best_multiset_backtest(
-            operator=args.operator, csv_path=args.csv, progress=progress
+            _winnings=winnings, _n_draws=n_draws, progress=progress
         )
         console.print(f"  Best multiset: [green]{best_ms}[/]")
         console.print(f"  Cost: RM {res['cost_rm']:,.0f}  |  Winnings: RM {res['total_winnings_rm']:,.0f}  |  Profit: [{'green' if res['profit_rm'] >= 0 else 'red'}]{res['profit_rm']:+,.0f}[/]")
         console.print(f"  24 numbers: {', '.join(sorted(best_nums))}")
-        if res["profit_rm"] >= 0:
-            console.print("  [green]Strategy 1 is profitable.[/]")
-        else:
-            console.print("  [yellow]Strategy 1 not profitable.[/]")
     except Exception as e:
         console.print(f"  [red]{e}[/]")
         res = None
         best_ms = None
         best_nums = None
 
-    res2 = None
-    top24 = None
-    if args.top24:
-        console.print("\n[bold]Hypothesis 2:[/] Top 24 numbers by individual 4D+3D profit (slow).")
-        try:
-            top24, res2 = run_top24_individual_backtest(
-                operator=args.operator, csv_path=args.csv, progress=progress
-            )
-            console.print(f"  Cost: RM {res2['cost_rm']:,.0f}  |  Winnings: RM {res2['total_winnings_rm']:,.0f}  |  Profit: [{'green' if res2['profit_rm'] >= 0 else 'red'}]{res2['profit_rm']:+,.0f}[/]")
-        except Exception as e:
-            console.print(f"  [red]{e}[/]")
+    # Hypothesis 2: Top 24 individual numbers (any 0000-9999, need not be one multiset)
+    console.print("\n[bold]Hypothesis 2:[/] Top 24 individual numbers — the 24 most profitable numbers (any, not necessarily from one multiset).")
+    try:
+        top24, res2 = run_top24_individual_backtest(_winnings=winnings, _n_draws=n_draws)
+        console.print(f"  Cost: RM {res2['cost_rm']:,.0f}  |  Winnings: RM {res2['total_winnings_rm']:,.0f}  |  Profit: [{'green' if res2['profit_rm'] >= 0 else 'red'}]{res2['profit_rm']:+,.0f}[/]")
+        console.print(f"  24 numbers: {', '.join(sorted(top24))}")
+    except Exception as e:
+        console.print(f"  [red]{e}[/]")
+        res2 = None
+        top24 = None
 
-    # Report best
+    # Compare and report best
     console.print("\n" + "=" * 50)
     candidates = []
     if best_ms is not None and res:
@@ -318,6 +338,7 @@ def main() -> None:
         return
     best_label, best_profit, best_nums_final, best_res = max(candidates, key=lambda x: x[1])
     console.print(f"[bold]Best strategy:[/] {best_label} — Profit [{'green' if best_profit >= 0 else 'red'}]{best_profit:+,.0f}[/] RM")
+    console.print(f"  24 numbers: {', '.join(sorted(best_nums_final))}")
     if best_profit >= 0:
         console.print("  [green]Use the 24 numbers above; same set for all draws and operators.[/]")
     else:

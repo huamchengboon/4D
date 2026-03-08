@@ -9,42 +9,53 @@
 
 ---
 
-## Hypothesis 1: Best multiset (24 permutations)
+## Best strategy: Top 24 individual numbers
+
+**Task:** Pick the **24 individual numbers** (from 0000–9999) that together make the most profit. They may or may not be from one multiset.
+
+**Method:** Precompute 4D+3D total winnings for each number 0–9999 over all draws. For each number, profit = winnings − n_draws. Sort by profit descending; take the top 24. Combined profit = sum of their winnings − 24×n_draws.
+
+**Result (all operators, 17,751 draws):**  
+- **Cost:** RM 426,024  
+- **Winnings:** RM 871,740  
+- **Profit: +445,716 RM**
+
+**The 24 numbers:**  
+0717, 1113, 1990, 2483, 2899, 2965, 3184, 3869, 3887, 4092, 4427, 4479, 4681, 5122, 5180, 5194, 5451, 6554, 7605, 8844, 8992, 9039, 9527, 9844
+
+These are the 24 most profitable numbers when bet RM1 each per draw (4D+3D); they are not the 24 permutations of a single multiset.
+
+---
+
+## Hypothesis 1: Best multiset (24 = permutations of one multiset)
 
 **Reasoning:**  
-We have 210 multisets (4 distinct digits). Each multiset has 24 permutations (4!); betting all 24 gives full coverage of that digit set. From earlier analysis, **1237** was the number with the **least loss** in 4D-only backtests. Including **3D** (last 3 digits) adds payouts when our number does not match 4D but its last 3 digits match 1st/2nd/3rd. So we scan all 210 multisets with **4D+3D** and pick the one with highest total profit.
-
-**Backtest:**  
-For each multiset, 24 numbers = all permutations. Cost = 24 × n_draws. Winnings = sum over draws and over 24 numbers of (4D prize or 3D prize, best only). Operator filter: none (all operators).
+Among 210 multisets (4 distinct digits), each has 24 permutations. We scan all 210 with 4D+3D and pick the multiset with highest total profit (constraint: 24 numbers must be that multiset’s permutations).
 
 **Result:**  
 - **Best multiset: 1237**
-- **24 numbers:** 1237, 1273, 1327, 1372, 1723, 1732, 2137, 2173, 2317, 2371, 2713, 2731, 3127, 3172, 3217, 3271, 3712, 3721, 7123, 7132, 7213, 7231, 7312, 7321 (all permutations of 1,2,3,7).
-- **All operators:** 17,751 draws → Cost RM 426,024 | Winnings RM 555,130 → **Profit +129,106 RM**.
-- **Per operator (same 24 numbers):**  
-  - Magnum 4D: **+38,190**  
-  - Sports Toto 4D: **+51,872**  
-  - Da Ma Cai 1+3D: **+39,044**
+- **24 numbers:** all permutations of 1,2,3,7 (1237, 1273, 1327, …).
+- **Profit: +129,106 RM** (all operators).
 
-**Conclusion:** Hypothesis 1 is **profitable** in the backtest. The same fixed set of 24 numbers (all permutations of 1237) is profitable across all operators.
+So the **best 24 numbers under the “one multiset” constraint** is 1237; the **best 24 with no constraint** is the individual list above (**+445,716**).
 
 ---
 
 ## How to reproduce
 
 ```bash
-# Best multiset only (fast)
+# Both strategies (precompute once, then best multiset + top 24 individual)
 uv run python -m analysis.strategy_24
 
 # With operator filter (e.g. Magnum only)
 uv run python -m analysis.strategy_24 --operator "Magnum 4D"
 
-# Also run Hypothesis 2 (top 24 individual numbers; slow)
-uv run python -m analysis.strategy_24 --top24
+# No progress bars
+uv run python -m analysis.strategy_24 --quiet
 ```
 
 ---
 
 ## Caveat
 
-Backtest uses historical data. Past profit does not guarantee future profit; the game has a structural house edge. The result is driven by 3D payouts (last-3 match) and the choice of a multiset that historically had strong 4D performance (1237).
+Backtest uses historical data. Past profit does not guarantee future profit; the game has a structural house edge. The “top 24 individual” set is chosen by historical 4D+3D performance; 9844 appears in that set (it had unusually many 1st-prize hits in history).
