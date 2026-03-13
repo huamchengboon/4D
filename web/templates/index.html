@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block title %}4D Strategy — Overview{% endblock %}
+{% block body %}
+<h1>4D Strategy</h1>
+
+<form method="get" action="/" class="card" style="margin-bottom: 20px;">
+  <p style="margin: 0 0 12px 0;"><strong>Rerun with:</strong></p>
+  <div class="form-row">
+    <label>Start date <input type="date" name="start_date" value="{{ start_date }}" min="{{ date_min_csv }}" max="{{ date_max_csv }}"></label>
+    <label style="margin-left: 12px;">End date <input type="date" name="end_date" value="{{ end_date }}" min="{{ date_min_csv }}" max="{{ date_max_csv }}"></label>
+    <label style="margin-left: 12px;">Numbers per draw <input type="number" name="n" value="{{ n }}" min="1" max="1000" style="width: 70px;"></label>
+    <button type="submit" style="margin-left: 12px;">Update</button>
+  </div>
+  <p class="muted" style="margin: 8px 0 0 0;">Data range in CSV: {{ date_min_csv }} to {{ date_max_csv }}</p>
+</form>
+
+<p class="muted">4D + 3D Big, RM1 per number. Same {{ n }} numbers for all draws in the selected date range.</p>
+
+{% if not data or not data.has_data %}
+  <p>No data. Ensure <code>4d_history.csv</code> exists in project root.</p>
+{% else %}
+
+  {% if data.all_operators and not data.all_operators.error %}
+  <h2>All operators (combined)</h2>
+  <div class="card">
+    <table class="summary-table">
+      <tr><th>Draws</th><td>{{ data.all_operators.draws | int }}</td></tr>
+      <tr><th>Best strategy</th>
+        <td>{% if data.all_operators.top24_profit >= data.all_operators.multiset_profit %}Top {{ n }} individual{% else %}Best multiset {{ data.all_operators.best_multiset }}{% endif %}</td>
+      </tr>
+      <tr><th>Top {{ n }} profit</th><td class="{% if data.all_operators.top24_profit >= 0 %}profit{% else %}loss{% endif %}">RM {{ data.all_operators.top24_profit_fmt }}</td></tr>
+      <tr><th>Multiset profit (24)</th><td class="{% if data.all_operators.multiset_profit >= 0 %}profit{% else %}loss{% endif %}">RM {{ data.all_operators.multiset_profit_fmt }}</td></tr>
+    </table>
+    <p style="margin-top:12px;"><strong>Top {{ n }} numbers (all operators)</strong> — sorted by win count:</p>
+    {% if top_numbers_with_counts %}
+    <p class="numbers">{% for num, count in top_numbers_with_counts %}{{ num }} ({{ count }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
+    {% else %}
+    <p class="numbers">{{ data.all_operators.top24 | join(", ") }}</p>
+    {% endif %}
+    <p class="muted" style="margin-top:12px;">Best multiset: {{ data.all_operators.best_multiset }} — 24 numbers: {{ data.all_operators.multiset_numbers | join(", ") }}</p>
+  </div>
+  {% endif %}
+
+  <h2>Per operator</h2>
+  <p class="muted">Best {{ n }} numbers and best multiset (24) for each operator in the selected date range (using only that operator’s draws).</p>
+
+  {% for op in data.operators %}
+  <div class="card">
+    {% if op.error %}
+      <p><strong>{{ op.name }}</strong></p>
+      <p class="loss">Error: {{ op.error }}</p>
+    {% else %}
+      <h3 style="margin:0 0 12px 0; font-size:1.1rem;">{{ op.name }}</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th>Top {{ n }} individual</th>
+            <th>Best multiset ({{ op.best_multiset }})</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Draws</td>
+            <td colspan="2">{{ op.draws | int }}</td>
+          </tr>
+          <tr>
+            <td>Profit</td>
+            <td class="{% if op.top24_profit >= 0 %}profit{% else %}loss{% endif %}">RM {{ op.top24_profit_fmt }}</td>
+            <td class="{% if op.multiset_profit >= 0 %}profit{% else %}loss{% endif %}">RM {{ op.multiset_profit_fmt }}</td>
+          </tr>
+          <tr>
+            <td>Winnings</td>
+            <td>RM {{ op.top24_winnings_fmt }}</td>
+            <td>RM {{ op.multiset_winnings_fmt }}</td>
+          </tr>
+          <tr>
+            <td>Cost</td>
+            <td colspan="2">RM {{ op.top24_cost_fmt }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p style="margin-top:12px;"><strong>Top {{ n }} numbers:</strong></p>
+      <p class="numbers">{{ op.top24 | join(", ") }}</p>
+      <p class="muted" style="margin-top:8px;"><strong>Multiset 24:</strong> {{ op.multiset_numbers | join(", ") }}</p>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  {% if chart_data and chart_data.datasets %}
+  <h2>Wins by month (top numbers)</h2>
+  <div id="chart-section">
+    <form method="get" action="/" class="chart-filter" style="margin-bottom: 12px;" id="chart-filter-form">
+      <input type="hidden" name="start_date" value="{{ start_date }}">
+      <input type="hidden" name="end_date" value="{{ end_date }}">
+      <input type="hidden" name="n" value="{{ n }}">
+      <p style="margin: 0 0 8px 0;"><strong>Chart:</strong> filter by operator (none = all)</p>
+      <div class="chart-operator-checkboxes">
+        {% for op in operators %}
+        <label class="chart-operator-cb"><input type="checkbox" name="chart_operator" value="{{ op }}" {% if op in chart_operators_selected %}checked{% endif %}> {{ op }}</label>
+        {% endfor %}
+      </div>
+    </form>
+    <p class="muted">Stacked bar: each segment is one number's wins. Use zoom toolbar or scroll to zoom, drag to pan.</p>
+    <p style="margin-bottom: 8px;"><a href="#" class="chart-fullscreen-btn" id="chart-fullscreen-btn" target="_blank">Fullscreen (new tab)</a></p>
+    <div class="card chart-canvas-wrapper">
+      <div id="winsChart" style="width:100%; height:400px;"></div>
+    </div>
+  </div>
+  <script type="application/json" id="chart-data-initial">{{ chart_data_json | replace('</script>', '<\\/script>') | safe }}</script>
+  {% endif %}
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<link href="https://cdn.syncfusion.com/ej2/29.1.33/material.css" rel="stylesheet" />
+<script src="https://cdn.syncfusion.com/ej2/29.1.33/dist/ej2.min.js"></script>
+<script>
+  if (typeof ej !== 'undefined' && ej.base && ej.base.registerLicense) {
+    ej.base.registerLicense('Ngo9BigBOggjHTQxAR8/V1JGaF1cXmhKYVJzWmFZfVhgdV9EZVZVR2YuP1ZhSXxVdkZjUX9fcnFRRWNbU0R9XEA=');
+  }
+</script>
+<script type="module">
+import { QueryClient } from 'https://esm.sh/@tanstack/query-core@5';
+
+var queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { staleTime: 5 * 60 * 1000 }
+  }
+});
+
+var colors = [
+  '#2c3e50', '#34495e', '#7f8c8d', '#95a5a6', '#1a1a1a',
+  '#0a6b0a', '#2d6a2d', '#4a7c4a', '#27ae60', '#16a085',
+  '#2980b9', '#3498db', '#5d6d7e', '#566573', '#273746',
+  '#1a5276', '#0e6655', '#186a3b', '#7d6608', '#5d4e37',
+  '#784212', '#6e2c00', '#922b21', '#641e16', '#1b4f72',
+  '#154360', '#0e6251', '#145a32', '#7e5109', '#6e2c00'
+];
+if (typeof ej !== 'undefined' && ej.charts && ej.charts.Chart && ej.charts.Chart.Inject) {
+  ej.charts.Chart.Inject(ej.charts.StackingColumnSeries, ej.charts.Category, ej.charts.Legend, ej.charts.Zoom, ej.charts.Tooltip);
+}
+function buildSeries(d) {
+    if (!d || !d.labels || !d.datasets || !d.datasets.length) return [];
+    var labels = d.labels;
+    return d.datasets.map(function(s, i) {
+      var dataSource = labels.map(function(month, j) {
+        return { x: month, y: (s.counts && s.counts[j]) || 0 };
+      });
+      return {
+        type: 'StackingColumn',
+        dataSource: dataSource,
+        xName: 'x',
+        yName: 'y',
+        name: s.number || ('Series ' + (i + 1)),
+        fill: colors[i % colors.length]
+      };
+    });
+  }
+  function drawChart(d) {
+    if (!d || !d.datasets || !d.datasets.length) return;
+    var container = document.getElementById('winsChart');
+    if (!container) return;
+    if (window.winsChartInstance) {
+      window.winsChartInstance.destroy();
+      window.winsChartInstance = null;
+    }
+    container.innerHTML = '';
+    var series = buildSeries(d);
+    var filterLabel = (d.filter_label != null && d.filter_label !== '') ? d.filter_label : 'All operators';
+    var chartTitle = 'Top ' + series.length + ' numbers: ' + filterLabel;
+    window.winsChartInstance = new ej.charts.Chart({
+      title: chartTitle,
+      primaryXAxis: { valueType: 'Category', title: 'Month' },
+      primaryYAxis: { title: 'Wins' },
+      series: series,
+      legendSettings: { visible: true, position: 'Bottom' },
+      tooltip: { enable: true },
+      zoomSettings: {
+        enableMouseWheelZooming: true,
+        enablePinchZooming: true,
+        enableSelectionZooming: true,
+        enablePan: true,
+        mode: 'X',
+        showToolbar: true,
+        toolbarItems: ['Zoom', 'ZoomIn', 'ZoomOut', 'Pan', 'Reset']
+      }
+    });
+    window.winsChartInstance.appendTo('#winsChart');
+  }
+  function updateChartFromApi(data) {
+    if (!data || !Array.isArray(data.datasets) || !data.datasets.length) return;
+    drawChart(data);
+  }
+  var initialEl = document.getElementById('chart-data-initial');
+  if (initialEl) {
+    try {
+      var data = JSON.parse(initialEl.textContent);
+      data.filter_label = data.filter_label || "{{ chart_operators_selected | join(', ') if chart_operators_selected else 'All operators' }}";
+      drawChart(data);
+    } catch (e) {}
+  }
+  var fullscreenBtn = document.getElementById('chart-fullscreen-btn');
+  var form = document.getElementById('chart-filter-form');
+  function setFullscreenHref() {
+    if (!fullscreenBtn || !form) return;
+    var fd = new FormData(form);
+    var params = new URLSearchParams();
+    params.set('start_date', fd.get('start_date') || '');
+    params.set('end_date', fd.get('end_date') || '');
+    params.set('n', fd.get('n') || '24');
+    fd.getAll('chart_operator').forEach(function(v) { params.append('chart_operator', v); });
+    fullscreenBtn.href = '/chart?' + params.toString();
+  }
+  if (fullscreenBtn && form) {
+    setFullscreenHref();
+    form.querySelectorAll('input[name="chart_operator"]').forEach(function(cb) {
+      cb.addEventListener('change', setFullscreenHref);
+    });
+  }
+  if (form) {
+    async function fetchChart() {
+      var fd = new FormData(form);
+      var params = new URLSearchParams();
+      params.set('start_date', fd.get('start_date') || '');
+      params.set('end_date', fd.get('end_date') || '');
+      params.set('n', fd.get('n') || '24');
+      fd.getAll('chart_operator').forEach(function(v) { params.append('chart_operator', v); });
+      var url = '/api/chart?' + params.toString();
+      try {
+        var data = await queryClient.fetchQuery({
+          queryKey: ['chart', params.toString()],
+          queryFn: function() {
+            return fetch(url).then(function(r) {
+              if (!r.ok) throw new Error(r.statusText);
+              return r.json();
+            });
+          },
+          staleTime: 5 * 60 * 1000
+        });
+        updateChartFromApi(data);
+      } catch (e) {}
+    }
+    form.addEventListener('change', function(ev) {
+      if (ev.target && ev.target.getAttribute('name') === 'chart_operator') fetchChart();
+    });
+  }
+</script>
+{% endblock %}

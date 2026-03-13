@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}4D Strategy{% endblock %}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      color: #1a1a1a;
+      background: #f8f8f8;
+      margin: 0;
+      padding: 24px;
+      max-width: 1000px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+    h1 { font-size: 1.5rem; font-weight: 600; margin: 0 0 8px 0; color: #1a1a1a; }
+    h2 { font-size: 1.2rem; font-weight: 600; margin: 24px 0 12px 0; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #ddd; }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; }
+    th { background: #eee; font-weight: 600; }
+    .card {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .profit { color: #0a6b0a; font-weight: 600; }
+    .loss { color: #b00; font-weight: 600; }
+    .muted { color: #666; font-size: 0.9rem; }
+    .numbers { font-family: ui-monospace, monospace; font-size: 0.9rem; word-break: break-all; }
+    .summary-table th { width: 30%; }
+    .form-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .form-row label { display: inline-flex; align-items: center; gap: 4px; }
+    .form-row input[type="date"], .form-row input[type="number"] { padding: 6px 8px; border: 1px solid #ccc; border-radius: 2px; }
+    .form-row button { padding: 6px 14px; border: 1px solid #333; background: #1a1a1a; color: #fff; border-radius: 2px; cursor: pointer; }
+    .form-row button:hover { background: #333; }
+    .chart-filter select { padding: 6px 8px; border: 1px solid #ccc; border-radius: 2px; }
+    .chart-operator-checkboxes { display: flex; flex-wrap: wrap; gap: 12px 20px; }
+    .chart-operator-cb { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+    .chart-fullscreen-btn { padding: 6px 12px; border: 1px solid #333; background: #fff; color: #1a1a1a; border-radius: 2px; cursor: pointer; font-size: 0.9rem; text-decoration: none; display: inline-block; }
+    .chart-fullscreen-btn:hover { background: #eee; }
+    .chart-canvas-wrapper { min-height: 0; }
+  </style>
+  {% block head %}{% endblock %}
+  <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+  {% block body %}{% endblock %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

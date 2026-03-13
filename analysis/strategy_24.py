@@ -173,17 +173,32 @@ def get_precomputed_winnings(
     csv_path: Path | None = None,
     *,
     progress: bool = True,
+    date_min: str | None = None,
+    date_max: str | None = None,
 ) -> tuple[list[float], int]:
     """
     Load draws, precompute 4D+3D winnings for each number 0-9999. Return (winnings list, n_draws).
     Reuse this for both best-multiset and top-24-individual strategies.
+    date_min / date_max: optional "YYYY-MM-DD" to restrict draws to that range (inclusive).
     """
+    from datetime import date as _date
+
     path = csv_path or DEFAULT_CSV
     if not path.is_file():
         raise FileNotFoundError(f"CSV not found: {path}")
     df = load_history(str(path))
     if operator is not None:
-        df = df.filter(pl.col("operator") == operator)
+        if isinstance(operator, list):
+            if operator:
+                df = df.filter(pl.col("operator").is_in(operator))
+        else:
+            df = df.filter(pl.col("operator") == operator)
+    if date_min is not None:
+        dmin = _date.fromisoformat(date_min) if isinstance(date_min, str) else date_min
+        df = df.filter(pl.col("date") >= pl.lit(dmin))
+    if date_max is not None:
+        dmax = _date.fromisoformat(date_max) if isinstance(date_max, str) else date_max
+        df = df.filter(pl.col("date") <= pl.lit(dmax))
     if df.height == 0:
         raise ValueError("No draws")
     draws = get_draws_with_prizes(df)
@@ -246,13 +261,14 @@ def run_top24_individual_backtest(
     csv_path: Path | None = None,
     *,
     progress: bool = True,
+    n: int = 24,
     _winnings: list[float] | None = None,
     _n_draws: int | None = None,
 ) -> tuple[list[str], dict]:
     """
-    Pick the 24 individual numbers (from 0000-9999) with highest 4D+3D profit when bet RM1 each.
-    They need not be from one multiset. Return (list of 24 numbers, result_dict).
-    Uses precomputed winnings so it's fast.
+    Pick the top n individual numbers (from 0000-9999) with highest 4D+3D profit when bet RM1 each.
+    They need not be from one multiset. Return (list of n numbers, result_dict).
+    Uses precomputed winnings so it's fast. n: how many numbers per draw (default 24).
     """
     if _winnings is not None and _n_draws is not None:
         winnings = _winnings
@@ -260,19 +276,20 @@ def run_top24_individual_backtest(
     else:
         winnings, n_draws = get_precomputed_winnings(operator=operator, csv_path=csv_path, progress=progress)
 
-    cost_per_draw = COST_PER_DRAW
+    n = max(1, min(n, 10000))
+    cost_per_draw = float(n)  # RM1 per number
     # profit[i] = winnings[i] - n_draws (one number costs n_draws over history)
     profits = [(f"{i:04d}", winnings[i] - n_draws) for i in range(10_000)]
     profits.sort(key=lambda x: -x[1])
-    top24 = [p[0] for p in profits[:24]]
-    total_win = sum(winnings[int(n)] for n in top24)
+    top_n = [p[0] for p in profits[:n]]
+    total_win = sum(winnings[int(num)] for num in top_n)
     res = {
         "cost_rm": n_draws * cost_per_draw,
         "total_winnings_rm": total_win,
         "profit_rm": total_win - n_draws * cost_per_draw,
         "n_draws": n_draws,
     }
-    return top24, res
+    return top_n, res
 
 
 def _main_by_operator(console: "Console", args: "argparse.Namespace") -> None:

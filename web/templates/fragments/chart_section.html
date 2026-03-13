@@ -1,0 +1,17 @@
+{# HTMX fragment: inner content for #chart-section (no wrapper div). Chart data in data attr so afterSwap can draw. #}
+<form method="get" action="/" class="chart-filter" style="margin-bottom: 12px;" id="chart-filter-form">
+  <input type="hidden" name="start_date" value="{{ start_date }}">
+  <input type="hidden" name="end_date" value="{{ end_date }}">
+  <input type="hidden" name="n" value="{{ n }}">
+  <label>Chart: <select name="chart_operator" hx-get="/" hx-include="#chart-filter-form" hx-trigger="change" hx-target="#chart-section" hx-swap="innerHTML">
+    <option value="" {% if not chart_operator %}selected{% endif %}>All operators</option>
+    {% for op in operators %}
+    <option value="{{ op }}" {% if chart_operator == op %}selected{% endif %}>{{ op }}</option>
+    {% endfor %}
+  </select></label>
+</form>
+<p class="muted">Stacked bar: each segment is one number's wins in that month.</p>
+<div class="card" style="overflow-x: auto;">
+  <canvas id="winsChart" width="800" height="400"></canvas>
+</div>
+<div id="chart-data" data-json="{{ chart_data_json | e }}"></div>
