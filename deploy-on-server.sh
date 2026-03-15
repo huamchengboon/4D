@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Run this on the server (mac-mini) from the zero project root: /Users/chengboon/Docker/zero
-# Usage: ./4d/deploy-on-server.sh
-# Or: bash 4d/deploy-on-server.sh
+# Usage: ./4d/deploy-on-server.sh   or: bash 4d/deploy-on-server.sh
+# Ensure Docker is on PATH (e.g. run via: bash -l 4d/deploy-on-server.sh)
 set -e
+export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
 ZERO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ZERO_ROOT"
 FOURD_DIR="$ZERO_ROOT/4d"
