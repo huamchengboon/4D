@@ -1,0 +1,30 @@
+# Dependencies and build artifacts
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+node_modules
+web-frontend/node_modules
+web-frontend/dist
+
+# Git and IDE
+.git
+.gitignore
+.cursor
+*.md
+!web/README.md
+
+# Data and caches (mounted at runtime)
+*.sqlite3
+4d_history*.csv
+
+# Rust build (optional; not built in image)
+fetch_4d/target
+
+# Misc
+.DS_Store
+*.log
+.env
+.env.*

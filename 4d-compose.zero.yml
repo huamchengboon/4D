@@ -1,0 +1,42 @@
+# Include this from zero's docker-compose.yml so 4d runs on zero's network (Dockflare).
+# In zero's docker-compose.yml add: include: ./4d/4d-compose.zero.yml
+# Or merge these services into zero's compose manually.
+# Build/run from zero dir: docker compose -f docker-compose.yml -f 4d/4d-compose.zero.yml up -d 4d-backend 4d-frontend
+
+services:
+  4d-backend:
+    build:
+      context: ./4d
+      dockerfile: Dockerfile.backend
+    image: 4d-backend:latest
+    container_name: 4d-backend
+    restart: unless-stopped
+    environment:
+      4D_HISTORY_CSV: /data/4d_history.csv
+      API_CACHE_DB: /data/api_cache.sqlite3
+    volumes:
+      - ./4d/data:/data
+    networks:
+      - net
+
+  4d-frontend:
+    build:
+      context: ./4d
+      dockerfile: Dockerfile.frontend
+    image: 4d-frontend:latest
+    container_name: 4d-frontend
+    restart: unless-stopped
+    environment:
+      BACKEND_UPSTREAM: 4d-backend:8000
+    depends_on:
+      - 4d-backend
+    networks:
+      - net
+    labels:
+      - cloudflare.tunnel.enable=true
+      - cloudflare.tunnel.hostname=4d.chengboon.com
+      - cloudflare.tunnel.service=http://4d-frontend:80
+
+networks:
+  net:
+    external: true

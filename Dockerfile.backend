@@ -1,0 +1,19 @@
+# Backend only: FastAPI API + optional Jinja. No React.
+FROM python:3.13-slim AS app
+WORKDIR /app
+
+COPY requirements-docker.txt ./
+RUN pip install --no-cache-dir -r requirements-docker.txt
+
+COPY pyproject.toml ./
+COPY analysis/ ./analysis/
+COPY web/ ./web/
+COPY scrape_history.py scraper.py ./
+
+RUN mkdir -p /data
+
+ENV 4D_HISTORY_CSV=/data/4d_history.csv
+ENV API_CACHE_DB=/data/api_cache.sqlite3
+
+EXPOSE 8000
+CMD ["uvicorn", "web.main:app", "--host", "0.0.0.0", "--port", "8000"]

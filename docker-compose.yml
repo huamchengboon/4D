@@ -1,0 +1,28 @@
+# React in its own container; backend API only.
+# Run: ensure ./data exists and contains 4d_history.csv.
+# Then: docker compose up --build
+# Open http://localhost:3000 for the React app (API is proxied from frontend to backend).
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    expose:
+      - "8000"
+    environment:
+      4D_HISTORY_CSV: /data/4d_history.csv
+      API_CACHE_DB: /data/api_cache.sqlite3
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
