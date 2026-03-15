@@ -1,0 +1,101 @@
+# CI/CD: validate on every push/PR; deploy to mac-mini on push to main (or manual).
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  ZERO_REMOTE_PATH: /Users/chengboon/Docker/zero
+  FOURD_REMOTE_DIR: 4d
+
+jobs:
+  # Validate: ensure backend and frontend build (catches breakages before deploy).
+  validate:
+    name: Validate build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.backend
+          push: false
+          tags: 4d-backend:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.frontend
+          push: false
+          tags: 4d-frontend:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Deploy to server (mac-mini) only on main or manual run.
+  deploy:
+    name: Deploy to server
+    runs-on: ubuntu-latest
+    needs: [validate]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Rsync code to server
+        run: |
+          rsync -avz --delete \
+            --filter 'P data/' \
+            --exclude 'data' \
+            --exclude 'node_modules' \
+            --exclude 'web-frontend/node_modules' \
+            --exclude 'web-frontend/dist' \
+            --exclude '.git/refs/original' \
+            --exclude '.cursor' \
+            --exclude '*.sqlite3' \
+            --exclude '.venv' \
+            --exclude '__pycache__' \
+            --exclude '.env' \
+            --exclude '.env.*' \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            ./ "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ env.ZERO_REMOTE_PATH }}/${{ env.FOURD_REMOTE_DIR }}/"
+
+      - name: Unlock keychain (mac-mini)
+        env:
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          echo "$KEYCHAIN_PASSWORD" | ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            'cat | security unlock-keychain -p - ~/Library/Keychains/login.keychain-db' 2>/dev/null || true
+
+      - name: Run deploy on server
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "export PATH=/usr/local/bin:/opt/homebrew/bin:\$PATH && cd ${{ env.ZERO_REMOTE_PATH }} && SKIP_GIT_PULL=1 bash 4d/deploy-on-server.sh"
+
+      - name: Verify deployment
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            'export PATH="/usr/local/bin:$PATH" && docker ps --filter name=4d- --format "table {{.Names}}\t{{.Status}}"'
