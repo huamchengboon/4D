@@ -6,7 +6,7 @@ set -e
 ZERO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ZERO_ROOT"
 FOURD_DIR="$ZERO_ROOT/4d"
-REPO_URL="${4D_REPO_URL:-https://github.com/huamchengboon/4D.git}"
+REPO_URL="${FOURD_REPO_URL:-https://github.com/huamchengboon/4D.git}"
 
 if [[ ! -d "$FOURD_DIR/.git" ]]; then
   echo "Cloning 4D repo into $FOURD_DIR ..."
