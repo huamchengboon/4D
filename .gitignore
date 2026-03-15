@@ -15,3 +15,5 @@ output/
 
 # Rust build
 fetch_4d/target/
+web-frontend/node_modules/
+web-frontend/dist/

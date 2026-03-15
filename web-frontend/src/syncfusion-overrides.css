@@ -1,0 +1,62 @@
+/**
+ * Design-system overrides for Syncfusion Tailwind 3.4 theme.
+ * Colors come from syncfusion-theme-vars.css (official --color-sf-* mapping).
+ * Here we only set radius, font, and input sizing to match the app design system.
+ * Ref: https://ej2.syncfusion.com/react/documentation/appearance/css-variables
+ */
+
+/* Use design system radius and font for Syncfusion controls */
+.e-input-group.e-control-wrapper,
+.e-input-group {
+  border-radius: var(--radius);
+  margin-bottom: 0;
+}
+
+.e-input-group input.e-input,
+.e-input-group.e-control-wrapper input.e-input {
+  height: 2rem;
+  min-height: 2rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius);
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.875rem;
+}
+
+/* Compact datepicker: constrain only the input wrapper, never the popup */
+.dp-compact.e-input-group.e-control-wrapper,
+.dp-compact.e-input-group {
+  height: 2rem;
+  min-height: 2rem;
+}
+
+/* Ensure popup (calendar overlay) is never height-constrained */
+.e-popup.e-popup-open {
+  height: auto !important;
+  min-height: auto !important;
+  border-radius: var(--radius);
+}
+
+.e-popup .e-calendar {
+  font-family: var(--font-sans), sans-serif;
+  border-radius: var(--radius);
+}
+
+.e-popup .e-calendar .e-content span.e-day {
+  border-radius: calc(var(--radius) * 0.6);
+}
+
+.e-popup .e-calendar .e-content .e-selected span.e-day,
+.e-popup .e-calendar .e-content .e-selected.e-state-hover span.e-day {
+  border-radius: calc(var(--radius) * 0.6);
+}
+
+.e-popup .e-calendar .e-content .e-today span.e-day {
+  border-radius: calc(var(--radius) * 0.6);
+}
+
+/* Focus ring to match design system (ring-3 ring-ring/50) */
+.e-input-group.e-control-wrapper.e-input-focus,
+.e-input-group.e-input-focus {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 50%, transparent);
+}

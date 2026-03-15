@@ -1,0 +1,83 @@
+/**
+ * Syncfusion Tailwind 3.4 theme – design token mapping
+ * Per official docs: https://ej2.syncfusion.com/react/documentation/appearance/css-variables
+ * We use the Tailwind 3.4 theme and customize it by setting --color-sf-* variables
+ * to our app design tokens so Syncfusion components match the design system.
+ */
+
+:root {
+  /* Primary & surfaces */
+  --color-sf-primary: var(--primary);
+  --color-sf-primary-text-color: var(--primary-foreground);
+  --color-sf-content-bg-color: var(--background);
+  --color-sf-content-text-color: var(--foreground);
+  --color-sf-text-input-bg-color: transparent;
+  /* Content alts (muted, borders) */
+  --color-sf-content-bg-color-alt1: var(--muted);
+  --color-sf-content-bg-color-alt2: var(--muted);
+  --color-sf-content-bg-color-alt3: var(--border);
+  --color-sf-content-bg-color-alt4: var(--muted-foreground);
+  --color-sf-content-bg-color-alt5: var(--muted-foreground);
+  --color-sf-content-bg-color-hover: var(--accent);
+  --color-sf-content-bg-color-pressed: var(--accent);
+  --color-sf-content-bg-color-focus: var(--accent);
+  --color-sf-content-bg-color-selected: var(--primary);
+  --color-sf-content-bg-color-dragged: var(--accent);
+  --color-sf-content-bg-color-disabled: var(--input);
+  --color-sf-content-text-color-alt1: var(--muted-foreground);
+  --color-sf-content-text-color-alt2: var(--muted-foreground);
+  --color-sf-content-text-color-alt3: var(--muted-foreground);
+  --color-sf-content-text-color-alt4: var(--muted-foreground);
+  --color-sf-content-text-color-hover: var(--foreground);
+  --color-sf-content-text-color-pressed: var(--foreground);
+  --color-sf-content-text-color-focus: var(--foreground);
+  --color-sf-content-text-color-selected: var(--primary-foreground);
+  --color-sf-content-text-color-dragged: var(--foreground);
+  --color-sf-content-text-color-disabled: var(--muted-foreground);
+  --color-sf-placeholder-text-color: var(--muted-foreground);
+  /* Flyout (popup / calendar dropdown) */
+  --color-sf-flyout-bg-color: var(--popover);
+  --color-sf-flyout-bg-color-hover: var(--accent);
+  --color-sf-flyout-bg-color-pressed: var(--accent);
+  --color-sf-flyout-bg-color-focus: var(--accent);
+  --color-sf-flyout-bg-color-selected: var(--primary);
+  --color-sf-flyout-bg-color-disabled: var(--muted);
+  --color-sf-flyout-text-color: var(--popover-foreground);
+  --color-sf-flyout-text-color-hover: var(--accent-foreground);
+  --color-sf-flyout-text-color-pressed: var(--accent-foreground);
+  --color-sf-flyout-text-color-focus: var(--accent-foreground);
+  --color-sf-flyout-text-color-selected: var(--primary-foreground);
+  --color-sf-flyout-text-color-disabled: var(--muted-foreground);
+  /* Border & icons */
+  --color-sf-border: var(--border);
+  --color-sf-border-light: var(--border);
+  --color-sf-dialog-border: var(--border);
+  --color-sf-icon-color: var(--muted-foreground);
+  --color-sf-icon-color-hover: var(--foreground);
+  --color-sf-icon-color-pressed: var(--foreground);
+  --color-sf-icon-color-disabled: var(--muted-foreground);
+  --color-sf-close-icon-color: var(--muted-foreground);
+  --color-sf-close-icon-color-hover: var(--foreground);
+  --color-sf-close-icon-color-pressed: var(--foreground);
+  --color-sf-close-icon-color-disabled: var(--muted-foreground);
+  /* Semantic */
+  --color-sf-danger: var(--destructive);
+  --color-sf-success: var(--success);
+  --color-sf-warning: var(--warning);
+  /* Table (for any grid) */
+  --color-sf-table-bg-color-hover: var(--accent);
+  --color-sf-table-bg-color-pressed: var(--accent);
+  --color-sf-table-bg-color-selected: var(--primary);
+  --color-sf-table-text-color-hover: var(--accent-foreground);
+  --color-sf-table-text-color-pressed: var(--accent-foreground);
+  --color-sf-table-text-color-selected: var(--primary-foreground);
+  /* Overlay */
+  --color-sf-overlay-bg-color: rgba(0, 0, 0, 0.5);
+  /* Black/white for shadows (Tailwind theme uses rgba(var(--color-sf-black), 0.1)) */
+  --color-sf-black: 0, 0, 0;
+  --color-sf-white: 255, 255, 255;
+}
+
+.dark {
+  --color-sf-overlay-bg-color: rgba(0, 0, 0, 0.6);
+}

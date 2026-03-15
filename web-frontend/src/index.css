@@ -1,0 +1,449 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/bricolage-grotesque";
+
+@custom-variant dark (&:is(.dark *));
+
+* {
+  box-sizing: border-box;
+}
+
+.profit {
+  @apply font-semibold text-[var(--success)];
+}
+
+.loss {
+  @apply font-semibold text-[var(--destructive)];
+}
+
+.muted {
+  @apply text-muted-foreground text-sm;
+}
+
+:root {
+  --background: oklch(0.992 0.007 250);
+  --foreground: oklch(0.21 0.015 250);
+  --card: oklch(0.998 0.006 250);
+  --card-foreground: oklch(0.21 0.015 250);
+  --popover: oklch(0.998 0.006 250);
+  --popover-foreground: oklch(0.21 0.015 250);
+  --primary: oklch(0.43 0.14 257);
+  --primary-foreground: oklch(0.985 0.005 250);
+  --secondary: oklch(0.962 0.012 252);
+  --secondary-foreground: oklch(0.3 0.035 255);
+  --muted: oklch(0.962 0.012 252);
+  --muted-foreground: oklch(0.52 0.02 252);
+  --accent: oklch(0.962 0.018 258);
+  --accent-foreground: oklch(0.3 0.035 255);
+  --destructive: oklch(0.577 0.245 27.325);
+  --success: oklch(0.45 0.13 155);
+  --success-foreground: oklch(0.99 0.01 155);
+  --warning: oklch(0.75 0.15 85);
+  --warning-foreground: oklch(0.25 0.05 85);
+  --border: oklch(0.905 0.015 252);
+  --input: oklch(0.905 0.015 252);
+  --ring: oklch(0.64 0.06 254);
+  --prize-1st: oklch(0.75 0.15 95);
+  --prize-2nd: oklch(0.55 0.04 260);
+  --prize-3rd: oklch(0.6 0.12 70);
+  --prize-special: oklch(0.55 0.12 250);
+  --prize-consolation: var(--muted-foreground);
+  --chart-1: oklch(0.809 0.105 251.813);
+  --chart-2: oklch(0.623 0.214 259.815);
+  --chart-3: oklch(0.546 0.245 262.881);
+  --chart-4: oklch(0.488 0.243 264.376);
+  --chart-5: oklch(0.424 0.199 265.638);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+  /* Operator accent tokens (Latest results page) — brand colors as single source of truth */
+  --operator-magnum-header: #eab308;
+  --operator-magnum-border: oklch(0.85 0.15 95 / 0.5);
+  --operator-magnum-label: #713f12;
+  --operator-damacai-header: #1e40af;
+  --operator-damacai-border: oklch(0.45 0.15 264 / 0.5);
+  --operator-damacai-label: #1e40af;
+  --operator-toto-header: #b91c1c;
+  --operator-toto-border: oklch(0.25 0.02 260 / 0.6);
+  --operator-toto-label: #1f2937;
+}
+
+.dark {
+  --background: oklch(0.16 0.012 254);
+  --foreground: oklch(0.95 0.01 250);
+  --card: oklch(0.2 0.014 254);
+  --card-foreground: oklch(0.95 0.01 250);
+  --popover: oklch(0.2 0.014 254);
+  --popover-foreground: oklch(0.95 0.01 250);
+  --primary: oklch(0.76 0.095 257);
+  --primary-foreground: oklch(0.22 0.02 255);
+  --secondary: oklch(0.26 0.016 254);
+  --secondary-foreground: oklch(0.95 0.01 250);
+  --muted: oklch(0.26 0.016 254);
+  --muted-foreground: oklch(0.73 0.016 250);
+  --accent: oklch(0.3 0.02 258);
+  --accent-foreground: oklch(0.95 0.01 250);
+  --destructive: oklch(0.704 0.191 22.216);
+  --success: oklch(0.65 0.14 155);
+  --success-foreground: oklch(0.2 0.02 155);
+  --warning: oklch(0.8 0.12 85);
+  --warning-foreground: oklch(0.25 0.05 85);
+  --border: oklch(0.37 0.02 254);
+  --input: oklch(0.37 0.02 254);
+  --ring: oklch(0.63 0.07 257);
+  --prize-1st: oklch(0.8 0.12 95);
+  --prize-2nd: oklch(0.65 0.04 260);
+  --prize-3rd: oklch(0.7 0.12 70);
+  --prize-special: oklch(0.65 0.12 250);
+  --prize-consolation: var(--muted-foreground);
+  --chart-1: oklch(0.809 0.105 251.813);
+  --chart-2: oklch(0.623 0.214 259.815);
+  --chart-3: oklch(0.546 0.245 262.881);
+  --chart-4: oklch(0.488 0.243 264.376);
+  --chart-5: oklch(0.424 0.199 265.638);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+  --operator-magnum-header: #ca8a04;
+  --operator-magnum-border: oklch(0.75 0.14 95 / 0.4);
+  --operator-magnum-label: #fef08a;
+  --operator-damacai-header: #1e3a8a;
+  --operator-damacai-border: oklch(0.55 0.2 264 / 0.4);
+  --operator-damacai-label: #93c5fd;
+  --operator-toto-header: #991b1b;
+  --operator-toto-border: oklch(0.4 0.02 260 / 0.5);
+  --operator-toto-label: #e5e7eb;
+}
+
+@theme inline {
+  --font-sans: 'Geist Variable', sans-serif;
+  --font-display: 'Bricolage Grotesque Variable', var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-prize-1st: var(--prize-1st);
+  --color-prize-2nd: var(--prize-2nd);
+  --color-prize-3rd: var(--prize-3rd);
+  --color-prize-special: var(--prize-special);
+  --color-prize-consolation: var(--prize-consolation);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    background-image:
+      radial-gradient(circle at 15% 20%, color-mix(in oklch, var(--primary) 9%, transparent), transparent 20%),
+      radial-gradient(circle at 85% 10%, color-mix(in oklch, var(--accent) 11%, transparent), transparent 24%);
+  }
+  html {
+    @apply font-sans;
+    font-size: 16px; /* Avoid iOS zoom on input focus */
+  }
+  @media (min-width: 768px) {
+    html {
+      font-size: 100%;
+    }
+  }
+  /* Safe area for notched devices (e.g. iPhone) */
+  .safe-area-x {
+    padding-left: env(safe-area-inset-left, 0);
+    padding-right: env(safe-area-inset-right, 0);
+  }
+  .safe-area-b {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  h1, h2 {
+    font-family: var(--font-display);
+  }
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    button,
+    a,
+    input,
+    select,
+    textarea,
+    [role="button"],
+    [role="link"],
+    .transition-smooth {
+      transition-duration: 180ms;
+      transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    }
+  }
+}
+
+.chart-canvas-wrapper .e-chart {
+  min-height: 26rem;
+}
+
+@media (max-width: 640px) {
+  .chart-canvas-wrapper .e-chart {
+    min-height: 20rem;
+  }
+}
+
+/* ── Animation keyframes ───────────────────────────────────── */
+@keyframes anim-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes anim-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Animation utilities ───────────────────────────────────── */
+
+/* Page-level route entrance — 300ms, confident */
+.anim-page {
+  animation: anim-fade-up 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Result / card reveal — slightly faster */
+.anim-result {
+  animation: anim-fade-up 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Row / chip fade-in — opacity only (safe for <tr> elements) */
+.anim-row {
+  animation: anim-fade-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Loading / suspense fallback — gentle fade-in */
+.anim-loading {
+  animation: anim-fade-in 200ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ── Gap bar fill via scaleX (@starting-style for CSS-only animation) */
+.gap-bar-fill {
+  transform-origin: left;
+  transition: transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+  @starting-style {
+    transform: scaleX(0);
+  }
+}
+
+/* ── Nav active indicator ──────────────────────────────────── */
+.nav-indicator {
+  position: absolute;
+  bottom: 0;
+  left: 2px;
+  right: 2px;
+  height: 2px;
+  border-radius: 1px;
+  background-color: var(--color-primary);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+.active .nav-indicator {
+  transform: scaleX(1);
+}
+
+/* ── Slip card (draw result) ──────────────────────────────── */
+.slip-card {
+  --slip-accent: var(--border);
+  position: relative;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--slip-accent) 25%, var(--border));
+  background-color: #faf8f4;
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.06),
+    inset 0 0 60px rgb(0 0 0 / 0.015);
+  transition: box-shadow 200ms ease;
+}
+.slip-card:hover {
+  box-shadow:
+    0 3px 10px rgb(0 0 0 / 0.09),
+    inset 0 0 60px rgb(0 0 0 / 0.015);
+}
+
+.dark .slip-card {
+  background-color: oklch(0.22 0.01 60);
+}
+
+/* WebGL paper-texture canvas sits behind all card content */
+.slip-paper-texture {
+  position: absolute !important;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0.45;
+}
+
+.slip-header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  color: white;
+}
+.slip-logo-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 3px;
+  background: rgba(255 255 255 / 0.25);
+  font-family: var(--font-display);
+  font-size: 0.75rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.slip-date-strip {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3rem 0.75rem;
+  border-bottom: 1px solid;
+  background: color-mix(in srgb, var(--slip-accent) 6%, transparent);
+}
+.dark .slip-date-strip {
+  background: color-mix(in srgb, var(--slip-accent) 8%, transparent);
+}
+
+.slip-body {
+  position: relative;
+  z-index: 1;
+  padding: 0.6rem 0.75rem 0.75rem;
+}
+
+.slip-prize-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.slip-prize-table td {
+  padding: 0.3rem 0;
+}
+.slip-prize-label {
+  width: 5rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.slip-prize-num {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+}
+.slip-prize-hit {
+  display: inline-block;
+  border-radius: 4px;
+  border: 1px solid var(--success);
+  background: color-mix(in srgb, var(--success) 18%, transparent);
+  padding: 0.1rem 0.35rem;
+  line-height: 1.3;
+}
+
+.slip-section-divider {
+  position: relative;
+  z-index: 1;
+  margin: 0.5rem 0;
+  border-top: 1px dashed color-mix(in srgb, var(--slip-accent) 30%, var(--border));
+}
+.slip-section-label {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 0.3rem;
+}
+
+.slip-numgrid {
+  gap: 3px !important;
+}
+.slip-numgrid > span {
+  font-size: 0.7rem !important;
+  padding: 0.2rem 0.3rem !important;
+  border-radius: 2px !important;
+  border-color: color-mix(in srgb, var(--slip-accent, var(--border)) 20%, var(--border)) !important;
+}
+
+/* ── Reduced motion: disable all custom animations ─────────── */
+@media (prefers-reduced-motion: reduce) {
+  .anim-page,
+  .anim-result,
+  .anim-row,
+  .anim-loading {
+    animation: none;
+  }
+  .gap-bar-fill {
+    transition: none;
+  }
+  .nav-indicator {
+    transition: none;
+  }
+}
