@@ -23,7 +23,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 
-from scraper import fetch_past_date, parse_results_html
+from scraper import scrape_past_date
 
 # Optional Rust extension for parallel HTTP (same API: fetch_past_dates(url, dates) -> list of (date_str, html))
 try:
@@ -109,11 +109,11 @@ def append_to_csv(csv_path: str, rows: list[dict], write_header: bool) -> None:
         writer.writerows(rows)
 
 
-def _fetch_one(date_str: str) -> tuple[str, str | None]:
-    """Fetch one date; return (date_str, html or None on error)."""
+def _scrape_one(date_str: str) -> tuple[str, list[dict] | None]:
+    """Scrape one date; return (date_str, draws or None on error)."""
     try:
-        html = fetch_past_date(date_str)
-        return (date_str, html)
+        draws = scrape_past_date(date_str)
+        return (date_str, draws)
     except Exception as e:
         print(f"Error fetching {date_str}: {e}", file=sys.stderr)
         return (date_str, None)
@@ -121,11 +121,11 @@ def _fetch_one(date_str: str) -> tuple[str, str | None]:
 
 def _process_batch_python(
     dates: list[str], workers: int
-) -> list[tuple[str, str | None]]:
-    """Fetch multiple dates in parallel using ThreadPoolExecutor."""
-    results: list[tuple[str, str | None]] = []
+) -> list[tuple[str, list[dict] | None]]:
+    """Scrape multiple dates in parallel using ThreadPoolExecutor."""
+    results: list[tuple[str, list[dict] | None]] = []
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(_fetch_one, d): d for d in dates}
+        futures = {executor.submit(_scrape_one, d): d for d in dates}
         for fut in as_completed(futures):
             results.append(fut.result())
     return results
@@ -147,7 +147,6 @@ def run(
     if serial and delay_seconds <= 0:
         delay_seconds = 1.0
 
-    base_url = "https://www.check4d.org"
     day_count = 0
     total_saved = 0
 
@@ -175,13 +174,11 @@ def run(
             # One at a time
             for date_str in batch:
                 try:
-                    html = fetch_past_date(date_str)
+                    draws = scrape_past_date(date_str)
                 except Exception as e:
                     print(f"Error fetching {date_str}: {e}", file=sys.stderr)
-                    existing_dates.add(date_str)
                     time.sleep(delay_seconds)
                     continue
-                draws = parse_results_html(html)
                 rows = []
                 for draw in draws:
                     rows.extend(draw_to_rows(draw, date_str))
@@ -192,28 +189,20 @@ def run(
                     print(f"Saved {date_str}: {len(rows)} row(s)")
                 else:
                     print(f"Skip {date_str}: no Magnum/Da Ma Cai/Sports Toto 4D draws")
-                existing_dates.add(date_str)
+                if rows:
+                    existing_dates.add(date_str)
                 time.sleep(delay_seconds)
             continue
 
-        # Parallel: fetch batch
-        if _RUST_AVAILABLE:
-            try:
-                raw = rust_fetch_past_dates(base_url, batch)
-                results = [(d, h) for d, h in raw if h is not None]
-            except Exception as e:
-                print(f"Rust fetch failed, falling back to Python: {e}", file=sys.stderr)
-                results = _process_batch_python(batch, workers)
-        else:
-            results = _process_batch_python(batch, workers)
+        # Parallel: scrape batch with Python (multi-source parsing).
+        # Rust fast-path is currently check4d-specific; we keep this unified for reliability.
+        results = _process_batch_python(batch, workers)
 
         # Sort by date and process
         results.sort(key=lambda x: x[0])
-        for date_str, html in results:
-            if html is None:
-                existing_dates.add(date_str)
+        for date_str, draws in results:
+            if draws is None:
                 continue
-            draws = parse_results_html(html)
             rows = []
             for draw in draws:
                 rows.extend(draw_to_rows(draw, date_str))
@@ -224,7 +213,8 @@ def run(
                 print(f"Saved {date_str}: {len(rows)} row(s)")
             else:
                 print(f"Skip {date_str}: no Magnum/Da Ma Cai/Sports Toto 4D draws")
-            existing_dates.add(date_str)
+            if rows:
+                existing_dates.add(date_str)
 
     if total_saved:
         print(f"Done. Total rows written this run: {total_saved}")
@@ -264,8 +254,6 @@ def main() -> None:
         help="Stop after this many days (default: no limit)",
     )
     args = parser.parse_args()
-    if _RUST_AVAILABLE:
-        print("Using Rust extension for fast parallel fetch.", file=sys.stderr)
     run(
         csv_path=args.csv,
         delay_seconds=args.delay,
