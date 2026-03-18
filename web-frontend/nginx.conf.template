@@ -10,7 +10,9 @@ server {
     }
 
     location /api/ {
-        proxy_pass http://${BACKEND_UPSTREAM};
+        # Preserve the full original URI (including the /api/ prefix)
+        # so FastAPI route decorators match exactly.
+        proxy_pass http://${BACKEND_UPSTREAM}$request_uri;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
