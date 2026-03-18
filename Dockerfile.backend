@@ -2,8 +2,8 @@
 FROM python:3.13-slim AS app
 WORKDIR /app
 
-COPY requirements-docker.txt ./
-RUN pip install --no-cache-dir -r requirements-docker.txt
+COPY requirements-backend-runtime.txt ./
+RUN pip install --no-cache-dir -r requirements-backend-runtime.txt
 
 COPY pyproject.toml ./
 COPY analysis/ ./analysis/
