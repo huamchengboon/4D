@@ -6,6 +6,7 @@ Run: uvicorn web.main:app --reload
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import os
 import sys
@@ -36,6 +37,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 CSV_PATH = Path(os.environ.get("4D_HISTORY_CSV", str(DEFAULT_CSV)))
+
+# Compatibility: older server builds may not yet support `bet_types=...` in
+# analysis.strategy_24 helpers. Detect signatures at import-time and only pass
+# the keyword when supported.
+_GET_PRECOMPUTED_SUPPORTS_BET_TYPES = "bet_types" in inspect.signature(get_precomputed_winnings).parameters
+_RUN_TOP24_SUPPORTS_BET_TYPES = "bet_types" in inspect.signature(run_top24_individual_backtest).parameters
 
 app = FastAPI(title="4D Strategy", docs_url=None, redoc_url=None)
 app.mount("/static", StaticFiles(directory=ROOT / "web" / "static"), name="static")
@@ -171,17 +178,27 @@ def _get_all_data(
     for op in operators:
         op_str = str(op)
         try:
-            w, n_draws = get_precomputed_winnings(
-                operator=op_str,
-                csv_path=CSV_PATH,
-                progress=False,
-                date_min=start_date,
-                date_max=end_date,
-                bet_types=bet_types,
-            )
-            top_n_list, res = run_top24_individual_backtest(
-                _winnings=w, _n_draws=n_draws, n=n, bet_types=bet_types
-            )
+            precomp_kwargs = {
+                "operator": op_str,
+                "csv_path": CSV_PATH,
+                "progress": False,
+                "date_min": start_date,
+                "date_max": end_date,
+            }
+            if _GET_PRECOMPUTED_SUPPORTS_BET_TYPES and bet_types is not None:
+                precomp_kwargs["bet_types"] = bet_types
+
+            w, n_draws = get_precomputed_winnings(**precomp_kwargs)
+
+            top24_kwargs = {
+                "_winnings": w,
+                "_n_draws": n_draws,
+                "n": n,
+            }
+            if _RUN_TOP24_SUPPORTS_BET_TYPES and bet_types is not None:
+                top24_kwargs["bet_types"] = bet_types
+
+            top_n_list, res = run_top24_individual_backtest(**top24_kwargs)
             best_ms, best_nums, ms_res = run_best_multiset_backtest(
                 _winnings=w, _n_draws=n_draws, progress=False
             )
@@ -205,17 +222,27 @@ def _get_all_data(
         except Exception as e:
             data["operators"].append({"name": op_str, "error": str(e)})
     try:
-        w, n_draws = get_precomputed_winnings(
-            operator=None,
-            csv_path=CSV_PATH,
-            progress=False,
-            date_min=start_date,
-            date_max=end_date,
-            bet_types=bet_types,
-        )
-        top_n_list, res = run_top24_individual_backtest(
-            _winnings=w, _n_draws=n_draws, n=n, bet_types=bet_types
-        )
+        precomp_kwargs = {
+            "operator": None,
+            "csv_path": CSV_PATH,
+            "progress": False,
+            "date_min": start_date,
+            "date_max": end_date,
+        }
+        if _GET_PRECOMPUTED_SUPPORTS_BET_TYPES and bet_types is not None:
+            precomp_kwargs["bet_types"] = bet_types
+
+        w, n_draws = get_precomputed_winnings(**precomp_kwargs)
+
+        top24_kwargs = {
+            "_winnings": w,
+            "_n_draws": n_draws,
+            "n": n,
+        }
+        if _RUN_TOP24_SUPPORTS_BET_TYPES and bet_types is not None:
+            top24_kwargs["bet_types"] = bet_types
+
+        top_n_list, res = run_top24_individual_backtest(**top24_kwargs)
         best_ms, best_nums, ms_res = run_best_multiset_backtest(
             _winnings=w, _n_draws=n_draws, progress=False
         )
